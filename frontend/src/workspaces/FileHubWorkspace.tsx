@@ -42,6 +42,7 @@ export const FileHubWorkspace: React.FC<FileHubWorkspaceProps> = ({
 }) => {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('ALL');
+  const [manualPath, setManualPath] = useState('');
   const [mwfnPathInput, setMwfnPathInput] = useState(config?.multiwfn_path || '');
   const [threadsInput, setThreadsInput] = useState(config?.default_threads || 8);
   const [savedNotice, setSavedNotice] = useState(false);
@@ -145,6 +146,28 @@ export const FileHubWorkspace: React.FC<FileHubWorkspaceProps> = ({
               自动提取 3D 原子结构、成键拓扑、轨道能量与 HOMO-LUMO 能隙
             </div>
           </label>
+
+          <div className="mt-3 flex items-center gap-2">
+            <input
+              type="text"
+              value={manualPath}
+              onChange={(e) => setManualPath(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && manualPath.trim()) {
+                  onSelectFile(manualPath.trim());
+                }
+              }}
+              placeholder="输入本地波函数路径 (如 E:\YDW\Chemdraws\zmy_2\计算数据\zmy01.fchk)"
+              className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs font-mono text-slate-200 focus:outline-none focus:border-sky-500"
+            />
+            <button
+              disabled={loading || !manualPath.trim()}
+              onClick={() => onSelectFile(manualPath.trim())}
+              className="px-3.5 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs cursor-pointer disabled:opacity-50 whitespace-nowrap"
+            >
+              载入/解析
+            </button>
+          </div>
 
           {/* Engine Config */}
           <div className="mt-4 pt-4 border-t border-slate-800/80 space-y-2.5">

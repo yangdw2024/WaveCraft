@@ -22,10 +22,11 @@ use wavecraft_core::cube::{DualIsosurfaceResult, Slice2DData};
 use wavecraft_core::engine::MultiwfnEngine;
 use wavecraft_core::menu_catalog::build_full_menu_catalog;
 use wavecraft_core::parser::{
-    build_dos_curve, build_spectrum_curve, parse_aromaticity, parse_bond_orders, parse_cdft_fukui,
-    parse_charges, parse_chg_file, parse_critical_points, parse_fuzzy_lidi, parse_line_txt,
-    parse_multipole, parse_nci_points, parse_orbital_composition, parse_orbitals,
-    parse_spectrum_peaks, parse_thermochemistry, quick_inspect_file,
+    build_dos_curve, build_spectrum_curve, enrich_homo_lumo, parse_aromaticity, parse_bond_orders,
+    parse_cdft_fukui, parse_charges, parse_chg_file, parse_critical_points, parse_esp_surface,
+    parse_fuzzy_lidi, parse_line_txt, parse_mpp_planarity, parse_multipole, parse_nci_points,
+    parse_orbital_composition, parse_orbitals, parse_spectrum_peaks, parse_thermochemistry,
+    quick_inspect_file, WavefunctionSummary,
 };
 
 #[derive(Clone)]
@@ -99,6 +100,8 @@ struct SliceQuery {
 #[derive(Deserialize)]
 struct IsoQuery {
     isovalue: Option<f64>,
+    color_cube_id: Option<String>,
+    color_mode: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -132,6 +135,26 @@ struct WeakReq {
 struct SimpleFileReq {
     file_path: String,
     method: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct PlanarityReq {
+    file_path: String,
+    heavy_only: Option<bool>,
+}
+
+#[derive(Deserialize)]
+struct EspSurfaceReq {
+    file_path: String,
+    grid_spacing: Option<f64>,
+}
+
+#[derive(Deserialize)]
+struct ZmyBatchReq {
+    file_paths: Vec<String>,
+    include_mpp: Option<bool>,
+    include_esp: Option<bool>,
+    esp_grid_spacing: Option<f64>,
 }
 
 #[derive(Deserialize)]
@@ -504,7 +527,13 @@ async fn cube_isosurface_handler(
         .await
         .ok_or_else(|| err_resp(StatusCode::NOT_FOUND, "Cube 缓存不存在或已过期"))?;
     let iso = q.isovalue.unwrap_or(0.03);
-    Ok(Json(cube.extract_dual_isosurface(iso)))
+    let color_cube = if let Some(ref ccid) = q.color_cube_id {
+        state.engine.get_cached_cube(ccid).await
+    } else {
+        None
+    };
+    let mode = q.color_mode.unwrap_or_else(|| "bgr".to_string());
+    Ok(Json(cube.extract_mapped_isosurface(iso, color_cube.as_deref(), &mode)))
 }
 
 async fn dos_handler(
@@ -573,7 +602,14 @@ async fn weak_interaction_handler(
 ) -> Result<impl IntoResponse, (StatusCode, Json<ApiError>)> {
     let grid = req.grid_quality.unwrap_or_else(|| "Coarse".to_string());
     let mode = req.output_mode.unwrap_or_else(|| "scatter".to_string());
-    let iso = req.isovalue.unwrap_or(0.5);
+    let iso = req.isovalue.unwrap_or_else(|| {
+        let m = req.method.to_uppercase();
+        if m.contains("IGM") {
+            0.005
+        } else {
+            0.5
+        }
+    });
     let cmds = CommandGenerator::weak_interaction_commands(
         &req.method,
         &grid,
@@ -608,7 +644,12 @@ async fn weak_interaction_handler(
     if let Some(ref cid) = res.cube_id {
         if let Some(cube) = state.engine.get_cached_cube(cid).await {
             slice_2d = Some(cube.extract_slice("xy", None));
-            isosurface = Some(cube.extract_dual_isosurface(iso));
+            let color_cube = if let Some(ref ccid) = res.color_cube_id {
+                state.engine.get_cached_cube(ccid).await
+            } else {
+                None
+            };
+            isosurface = Some(cube.extract_mapped_isosurface(iso, color_cube.as_deref(), "bgr"));
         }
     }
 
@@ -618,6 +659,7 @@ async fn weak_interaction_handler(
         "mode": mode,
         "scatter_points": scatter_points,
         "cube_id": res.cube_id,
+        "color_cube_id": res.color_cube_id,
         "slice_2d": slice_2d,
         "isosurface": isosurface,
         "duration_ms": res.duration_ms,
@@ -851,6 +893,132 @@ async fn multipole_handler(
     })))
 }
 
+async fn planarity_handler(
+    State(state): State<AppState>,
+    Json(req): Json<PlanarityReq>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ApiError>)> {
+    let heavy_only = req.heavy_only.unwrap_or(true);
+    let cmds = CommandGenerator::mpp_planarity_commands(heavy_only);
+    let res = state
+        .engine
+        .run_multiwfn(&req.file_path, &cmds, "分子平面性 (MPP/SDP)", 120)
+        .await
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let planarity = parse_mpp_planarity(&res.stdout);
+    Ok(Json(serde_json::json!({
+        "task_id": res.task_id,
+        "heavy_only": heavy_only,
+        "planarity": planarity,
+        "duration_ms": res.duration_ms,
+        "stdout": res.stdout,
+    })))
+}
+
+async fn esp_surface_handler(
+    State(state): State<AppState>,
+    Json(req): Json<EspSurfaceReq>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ApiError>)> {
+    let spacing = req.grid_spacing.unwrap_or(0.25);
+    let cmds = CommandGenerator::esp_surface_commands(spacing);
+    let res = state
+        .engine
+        .run_multiwfn(&req.file_path, &cmds, "ESP 分子表面定量分析", 300)
+        .await
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let esp = parse_esp_surface(&res.stdout);
+    Ok(Json(serde_json::json!({
+        "task_id": res.task_id,
+        "grid_spacing": spacing,
+        "esp": esp,
+        "duration_ms": res.duration_ms,
+        "stdout": res.stdout,
+    })))
+}
+
+async fn zmy_batch_workflow_handler(
+    State(state): State<AppState>,
+    Json(req): Json<ZmyBatchReq>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ApiError>)> {
+    if req.file_paths.is_empty() {
+        return Err(err_resp(StatusCode::BAD_REQUEST, "请提供至少一个分子波函数文件路径"));
+    }
+    let include_mpp = req.include_mpp.unwrap_or(true);
+    let include_esp = req.include_esp.unwrap_or(false);
+    let esp_spacing = req.esp_grid_spacing.unwrap_or(0.35);
+
+    let mut rows = Vec::new();
+    for path in &req.file_paths {
+        let p = Path::new(path);
+        let name = p
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(path)
+            .to_string();
+        let (atoms, _, orbs) = quick_inspect_file(p);
+        let mut summary = WavefunctionSummary::default();
+        enrich_homo_lumo(&mut summary, &orbs);
+
+        let m_cmds = CommandGenerator::multipole_commands();
+        let dipole_debye = match state
+            .engine
+            .run_multiwfn(path, &m_cmds, &format!("批处理偶极矩 {name}"), 120)
+            .await
+        {
+            Ok(r) => parse_multipole(&r.stdout).dipole_debye,
+            Err(_) => None,
+        };
+
+        let (mpp_angstrom, sdp_angstrom) = if include_mpp {
+            let p_cmds = CommandGenerator::mpp_planarity_commands(true);
+            match state
+                .engine
+                .run_multiwfn(path, &p_cmds, &format!("批处理平面性 {name}"), 120)
+                .await
+            {
+                Ok(r) => {
+                    let pl = parse_mpp_planarity(&r.stdout);
+                    (pl.mpp_angstrom, pl.sdp_angstrom)
+                }
+                Err(_) => (None, None),
+            }
+        } else {
+            (None, None)
+        };
+
+        let esp = if include_esp {
+            let e_cmds = CommandGenerator::esp_surface_commands(esp_spacing);
+            match state
+                .engine
+                .run_multiwfn(path, &e_cmds, &format!("批处理 ESP {name}"), 300)
+                .await
+            {
+                Ok(r) => Some(parse_esp_surface(&r.stdout)),
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+
+        rows.push(serde_json::json!({
+            "name": name,
+            "file_path": path,
+            "atom_count": atoms.len(),
+            "homo_ev": summary.homo_energy_ev,
+            "lumo_ev": summary.lumo_energy_ev,
+            "gap_ev": summary.homo_lumo_gap_ev,
+            "dipole_debye": dipole_debye,
+            "mpp_angstrom": mpp_angstrom,
+            "sdp_angstrom": sdp_angstrom,
+            "esp": esp,
+        }));
+    }
+
+    Ok(Json(serde_json::json!({
+        "count": rows.len(),
+        "rows": rows,
+    })))
+}
+
 async fn download_handler(Query(q): Query<DownloadQuery>) -> impl IntoResponse {
     let path = PathBuf::from(&q.path);
     if !path.exists() || !path.is_file() {
@@ -977,6 +1145,9 @@ async fn main() {
         .route("/fuzzy", post(fuzzy_handler))
         .route("/cdft", post(cdft_handler))
         .route("/multipole", post(multipole_handler))
+        .route("/planarity", post(planarity_handler))
+        .route("/esp-surface", post(esp_surface_handler))
+        .route("/workflow/zmy-batch", post(zmy_batch_workflow_handler))
         .route("/export", post(export_handler))
         .route("/execute-raw", post(execute_raw_handler))
         .route("/download", get(download_handler));

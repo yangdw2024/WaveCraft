@@ -6,6 +6,7 @@ import type {
   CriticalPoint,
   DosCurve,
   DualIsosurfaceResult,
+  EspSurfaceResult,
   ExampleFileInfo,
   FuzzyResult,
   HealthInfo,
@@ -16,11 +17,13 @@ import type {
   NciPoint,
   OrbitalCompositionEntry,
   OrbitalInfo,
+  PlanarityResult,
   RealspaceFunctionDef,
   Slice2DData,
   SpectrumCurve,
   TaskRecord,
   WaveCraftConfig,
+  ZmyBatchRow,
 } from '../types/quantum';
 
 const BASE = '/api';
@@ -199,7 +202,7 @@ export const api = {
     file_path: string;
     method: string;
     grid_quality: string;
-    output_mode: 'scatter' | 'cube';
+    output_mode: 'scatter' | 'cube' | 'both';
     fragment_atoms?: string;
     isovalue?: number;
   }) =>
@@ -209,6 +212,7 @@ export const api = {
       mode: string;
       scatter_points: NciPoint[];
       cube_id?: string | null;
+      color_cube_id?: string | null;
       slice_2d?: Slice2DData | null;
       isosurface?: DualIsosurfaceResult | null;
       duration_ms: number;
@@ -293,6 +297,44 @@ export const api = {
     }>('/multipole', {
       method: 'POST',
       body: JSON.stringify({ file_path }),
+    }),
+
+  calculatePlanarity: (file_path: string, heavy_only = true) =>
+    reqJson<{
+      task_id: string;
+      heavy_only: boolean;
+      planarity: PlanarityResult;
+      duration_ms: number;
+      stdout: string;
+    }>('/planarity', {
+      method: 'POST',
+      body: JSON.stringify({ file_path, heavy_only }),
+    }),
+
+  calculateEspSurface: (file_path: string, grid_spacing = 0.25) =>
+    reqJson<{
+      task_id: string;
+      grid_spacing: number;
+      esp: EspSurfaceResult;
+      duration_ms: number;
+      stdout: string;
+    }>('/esp-surface', {
+      method: 'POST',
+      body: JSON.stringify({ file_path, grid_spacing }),
+    }),
+
+  runZmyBatchWorkflow: (params: {
+    file_paths: string[];
+    include_mpp?: boolean;
+    include_esp?: boolean;
+    esp_grid_spacing?: number;
+  }) =>
+    reqJson<{
+      count: number;
+      rows: ZmyBatchRow[];
+    }>('/workflow/zmy-batch', {
+      method: 'POST',
+      body: JSON.stringify(params),
     }),
 
   exportStructure: (file_path: string, format: string) =>

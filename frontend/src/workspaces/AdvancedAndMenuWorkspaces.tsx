@@ -17,12 +17,15 @@ import type {
   AromaticityResult,
   CdftAtomEntry,
   CriticalPoint,
+  EspSurfaceResult,
   FuzzyResult,
   MenuCategory,
   MenuFunctionTemplate,
   MoleculeInspection,
   MultipoleResult,
+  PlanarityResult,
   TaskRecord,
+  ZmyBatchRow,
 } from '../types/quantum';
 import { Molecule3DCanvas } from '../components/Molecule3DCanvas';
 import { ExportToolbar } from '../components/ExportToolbar';
@@ -44,8 +47,70 @@ export const AdvancedToolsWorkspace: React.FC<{
   const [fuzzyRes, setFuzzyRes] = useState<FuzzyResult | null>(null);
   const [cdftEntries, setCdftEntries] = useState<CdftAtomEntry[]>([]);
   const [multipoleRes, setMultipoleRes] = useState<MultipoleResult | null>(null);
+  const [planarityRes, setPlanarityRes] = useState<PlanarityResult | null>(null);
+  const [heavyOnly, setHeavyOnly] = useState(true);
+  const [espRes, setEspRes] = useState<EspSurfaceResult | null>(null);
+  const [espSpacing, setEspSpacing] = useState(0.25);
+  const [batchPathsText, setBatchPathsText] = useState(
+    'E:\\YDW\\Chemdraws\\zmy_2\\计算数据\\zmy01.fchk\nE:\\YDW\\Chemdraws\\zmy_2\\计算数据\\zmy02.fchk\nE:\\YDW\\Chemdraws\\zmy_2\\计算数据\\zmy03.fchk'
+  );
+  const [batchIncludeEsp, setBatchIncludeEsp] = useState(false);
+  const [batchRows, setBatchRows] = useState<ZmyBatchRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const runPlanarity = async () => {
+    if (!inspection) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.calculatePlanarity(inspection.file_path, heavyOnly);
+      setPlanarityRes(res.planarity);
+      setStdout(res.stdout);
+    } catch (e: any) {
+      setError(e.message || 'MPP/SDP 平面性分析失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runEspSurface = async () => {
+    if (!inspection) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.calculateEspSurface(inspection.file_path, espSpacing);
+      setEspRes(res.esp);
+      setStdout(res.stdout);
+    } catch (e: any) {
+      setError(e.message || 'ESP 分子表面分析失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runBatchWorkflow = async () => {
+    const file_paths = batchPathsText
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (file_paths.length === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.runZmyBatchWorkflow({
+        file_paths,
+        include_mpp: true,
+        include_esp: batchIncludeEsp,
+        esp_grid_spacing: 0.35,
+      });
+      setBatchRows(res.rows);
+    } catch (e: any) {
+      setError(e.message || '多分子批处理工作流执行失败');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const runFuzzy = async () => {
     if (!inspection) return;
@@ -453,6 +518,224 @@ export const AdvancedToolsWorkspace: React.FC<{
             </div>
           )}
         </div>
+      </div>
+
+      {/* MPP/SDP 平面性 (Menu 26-3) & ESP 表面定量描述符 (Menu 12) */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+        <div className="xl:col-span-6 glass-panel rounded-2xl p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-bold text-slate-100">
+              分子平面性 MPP / SDP (Menu 26-3)
+            </h3>
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={heavyOnly}
+                  onChange={(e) => setHeavyOnly(e.target.checked)}
+                />
+                <span>仅重原子</span>
+              </label>
+              <button
+                disabled={busy || !inspection}
+                onClick={runPlanarity}
+                className="px-3.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/35 text-xs font-semibold cursor-pointer disabled:opacity-50"
+              >
+                计算 MPP / SDP
+              </button>
+            </div>
+          </div>
+
+          {planarityRes ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
+                <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+                  MPP: <b className="text-amber-300">{planarityRes.mpp_angstrom?.toFixed(4) ?? '—'} Å</b>
+                </div>
+                <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+                  SDP: <b className="text-sky-300">{planarityRes.sdp_angstrom?.toFixed(4) ?? '—'} Å</b>
+                </div>
+                <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+                  Max+: <b className="text-rose-300">{planarityRes.max_positive_angstrom?.toFixed(3) ?? '—'} Å</b>
+                </div>
+                <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+                  Max-: <b className="text-cyan-300">{planarityRes.max_negative_angstrom?.toFixed(3) ?? '—'} Å</b>
+                </div>
+              </div>
+              {planarityRes.atom_deviations.length > 0 && (
+                <div className="max-h-40 overflow-y-auto rounded-xl border border-slate-800">
+                  <table className="w-full text-xs font-mono">
+                    <thead className="bg-slate-900 text-slate-400 sticky top-0">
+                      <tr>
+                        <th className="py-1.5 px-2 text-left">原子</th>
+                        <th className="py-1.5 px-2 text-right">平面偏离 d_s (Å)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {planarityRes.atom_deviations.slice(0, 40).map((a) => (
+                        <tr key={a.atom_index}>
+                          <td className="py-1 px-2 text-slate-200">{a.atom_index}({a.element})</td>
+                          <td className={`py-1 px-2 text-right ${a.deviation_angstrom >= 0 ? 'text-rose-300' : 'text-sky-300'}`}>
+                            {a.deviation_angstrom.toFixed(5)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="py-8 text-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-xl">
+              点击「计算 MPP / SDP」获取分子最小二乘拟合平面偏离指标与原子偏离明细
+            </div>
+          )}
+        </div>
+
+        <div className="xl:col-span-6 glass-panel rounded-2xl p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-bold text-slate-100">
+              ESP 分子表面定量分析 (Menu 12)
+            </h3>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-400">步长:</span>
+              <input
+                type="number"
+                step={0.05}
+                min={0.15}
+                max={0.5}
+                value={espSpacing}
+                onChange={(e) => setEspSpacing(Number(e.target.value) || 0.25)}
+                className="w-16 bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs font-mono text-slate-200"
+              />
+              <button
+                disabled={busy || !inspection}
+                onClick={runEspSurface}
+                className="px-3.5 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200 border border-cyan-400/35 text-xs font-semibold cursor-pointer disabled:opacity-50"
+              >
+                计算 ESP 表面描述符
+              </button>
+            </div>
+          </div>
+
+          {espRes ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs font-mono">
+              <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+                Vs,min: <b className="text-sky-300">{espRes.vs_min_kcal?.toFixed(2) ?? '—'} kcal/mol</b>
+              </div>
+              <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+                Vs,max: <b className="text-rose-300">{espRes.vs_max_kcal?.toFixed(2) ?? '—'} kcal/mol</b>
+              </div>
+              <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+                MPI: <b className="text-amber-300">{espRes.mpi_kcal?.toFixed(3) ?? '—'} kcal/mol</b>
+              </div>
+              <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+                总表面积: <b className="text-slate-200">{espRes.overall_area_angstrom2?.toFixed(2) ?? '—'} Å²</b>
+              </div>
+              <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+                σ²_tot: <b className="text-violet-300">{espRes.sigma2_tot_kcal2?.toFixed(2) ?? '—'}</b>
+              </div>
+              <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+                ν / Π: <b className="text-emerald-300">{espRes.balance_nu?.toFixed(4) ?? '—'} / {espRes.internal_charge_sep_pi_kcal?.toFixed(2) ?? '—'}</b>
+              </div>
+              <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+                极性面积比: <b className="text-cyan-300">{espRes.polar_area_pct?.toFixed(1) ?? '—'}%</b>
+              </div>
+              <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+                体积: <b className="text-slate-200">{espRes.volume_angstrom3?.toFixed(2) ?? '—'} Å³</b>
+              </div>
+              <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+                密度: <b className="text-slate-200">{espRes.density_g_cm3?.toFixed(3) ?? '—'} g/cm³</b>
+              </div>
+            </div>
+          ) : (
+            <div className="py-8 text-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-xl">
+              点击「计算 ESP 表面描述符」提取 0.001 a.u. 电子密度面上的 Vs,min / Vs,max / MPI / σ² / ν / Π
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 多分子 OSC / zmy_2 批处理对比工作流 */}
+      <div className="glass-panel rounded-2xl p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-bold text-slate-100">
+              多分子批量分析工作流（复刻 zmy_2：HOMO/LUMO + 偶极矩 + MPP/SDP + ESP）
+            </h3>
+            <p className="text-xs text-slate-400">
+              每行一个 .fchk 文件路径，一键汇总多分子电子结构、偶极矩与平面性对比表
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={batchIncludeEsp}
+                onChange={(e) => setBatchIncludeEsp(e.target.checked)}
+              />
+              <span>含 ESP 描述符 (较耗时)</span>
+            </label>
+            <button
+              disabled={busy}
+              onClick={runBatchWorkflow}
+              className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-500 text-slate-950 font-bold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+              <span>运行批处理对比</span>
+            </button>
+            <ExportToolbar title="zmy_batch_summary" rows={batchRows} />
+          </div>
+        </div>
+
+        <textarea
+          value={batchPathsText}
+          onChange={(e) => setBatchPathsText(e.target.value)}
+          rows={3}
+          className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs font-mono text-slate-200"
+          placeholder="每行输入一个 .fchk 文件绝对路径..."
+        />
+
+        {batchRows.length > 0 && (
+          <div className="overflow-x-auto rounded-xl border border-slate-800">
+            <table className="w-full text-xs font-mono">
+              <thead className="bg-slate-900 text-slate-400">
+                <tr>
+                  <th className="py-2 px-3 text-left">分子</th>
+                  <th className="py-2 px-3 text-right">原子数</th>
+                  <th className="py-2 px-3 text-right">HOMO (eV)</th>
+                  <th className="py-2 px-3 text-right">LUMO (eV)</th>
+                  <th className="py-2 px-3 text-right">Gap (eV)</th>
+                  <th className="py-2 px-3 text-right">Dipole (D)</th>
+                  <th className="py-2 px-3 text-right">MPP (Å)</th>
+                  <th className="py-2 px-3 text-right">SDP (Å)</th>
+                  {batchIncludeEsp && <th className="py-2 px-3 text-right">Vs,min / Vs,max / MPI</th>}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {batchRows.map((r) => (
+                  <tr key={r.file_path} className="hover:bg-slate-900/50">
+                    <td className="py-1.5 px-3 text-slate-100 font-semibold">{r.name}</td>
+                    <td className="py-1.5 px-3 text-right text-slate-300">{r.atom_count}</td>
+                    <td className="py-1.5 px-3 text-right text-sky-300">{r.homo_ev?.toFixed(2) ?? '—'}</td>
+                    <td className="py-1.5 px-3 text-right text-emerald-300">{r.lumo_ev?.toFixed(2) ?? '—'}</td>
+                    <td className="py-1.5 px-3 text-right text-amber-300">{r.gap_ev?.toFixed(2) ?? '—'}</td>
+                    <td className="py-1.5 px-3 text-right text-violet-300">{r.dipole_debye?.toFixed(2) ?? '—'}</td>
+                    <td className="py-1.5 px-3 text-right text-amber-200">{r.mpp_angstrom?.toFixed(3) ?? '—'}</td>
+                    <td className="py-1.5 px-3 text-right text-cyan-200">{r.sdp_angstrom?.toFixed(3) ?? '—'}</td>
+                    {batchIncludeEsp && (
+                      <td className="py-1.5 px-3 text-right text-rose-300">
+                        {r.esp
+                          ? `${r.esp.vs_min_kcal?.toFixed(1) ?? '—'} / ${r.esp.vs_max_kcal?.toFixed(1) ?? '—'} / ${r.esp.mpi_kcal?.toFixed(2) ?? '—'}`
+                          : '—'}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

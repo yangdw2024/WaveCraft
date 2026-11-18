@@ -52,6 +52,10 @@ pub struct CalculationResult {
     pub generated_files: Vec<String>,
     pub cube_id: Option<String>,
     pub cube_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_cube_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_cube_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -318,36 +322,67 @@ impl MultiwfnEngine {
         let stdout = stdout_cow.into_owned();
         let stderr = stderr_cow.into_owned();
 
-        if !output.status.success() {
-            let code = output.status.code().unwrap_or(-1);
-            let tail: String = stdout
-                .lines()
-                .rev()
-                .take(15)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect::<Vec<_>>()
-                .join("\n");
-            let err_msg = format!("Multiwfn 非零退出码 ({code}): {stderr}\n{tail}");
-            self.finish_task_failed(&task_id, duration_ms, &err_msg)
-                .await;
-            return Err(err_msg);
-        }
-
         let mut generated_files = Vec::new();
         let mut cube_path: Option<String> = None;
+        let mut color_cube_path: Option<String> = None;
         if let Ok(entries) = fs::read_dir(&run_dir) {
+            let mut cube_candidates: Vec<String> = Vec::new();
             for entry in entries.flatten() {
                 let p = entry.path();
                 if p.is_file() {
                     let s = p.to_string_lossy().to_string();
                     let lower = s.to_lowercase();
                     if lower.ends_with(".cub") || lower.ends_with(".cube") {
-                        cube_path = Some(s.clone());
+                        if lower.contains("sl2r") || lower.contains("func1") || lower.contains("totesp") {
+                            color_cube_path = Some(s.clone());
+                        }
+                        cube_candidates.push(s.clone());
                     }
                     generated_files.push(s);
                 }
+            }
+            if !cube_candidates.is_empty() {
+                let priority = |p: &str| -> u8 {
+                    let name = Path::new(p)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("")
+                        .to_lowercase();
+                    if name.contains("dg_inter") {
+                        0
+                    } else if name.contains("func2") || name.contains("rdg") {
+                        1
+                    } else if name == "dg.cub" {
+                        2
+                    } else if name.contains("sl2r") || name.contains("func1") {
+                        9
+                    } else {
+                        3
+                    }
+                };
+                cube_candidates.sort_by_key(|p| priority(p));
+                cube_path = cube_candidates.into_iter().next();
+            }
+        }
+
+        if !output.status.success() {
+            let code = output.status.code().unwrap_or(-1);
+            // Multiwfn exits with code 24 (forrtl end-of-file) after cleanly exporting
+            // output.txt / .cub in IGM/IGMH workflows (EXPERIENCE E12).
+            if !(code == 24 && !generated_files.is_empty()) {
+                let tail: String = stdout
+                    .lines()
+                    .rev()
+                    .take(15)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let err_msg = format!("Multiwfn 非零退出码 ({code}): {stderr}\n{tail}");
+                self.finish_task_failed(&task_id, duration_ms, &err_msg)
+                    .await;
+                return Err(err_msg);
             }
         }
 
@@ -357,6 +392,15 @@ impl MultiwfnEngine {
                 let cid = format!("cube_{task_id}");
                 self.cache_cube(cid.clone(), cube).await;
                 cube_id = Some(cid);
+            }
+        }
+
+        let mut color_cube_id: Option<String> = None;
+        if let Some(ref ccpath) = color_cube_path {
+            if let Ok(ccube) = CubeData::from_file(ccpath) {
+                let ccid = format!("color_{task_id}");
+                self.cache_cube(ccid.clone(), ccube).await;
+                color_cube_id = Some(ccid);
             }
         }
 
@@ -372,6 +416,8 @@ impl MultiwfnEngine {
             generated_files,
             cube_id,
             cube_path,
+            color_cube_id,
+            color_cube_path,
         })
     }
 

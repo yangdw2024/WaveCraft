@@ -317,54 +317,80 @@ impl CommandGenerator {
         output_mode: &str,
         fragment_atoms: Option<&str>,
     ) -> Vec<String> {
-        let submenu = match method.to_uppercase().as_str() {
-            "NCI" => "1",
-            "IGM" => "2",
-            "MIGM" => "3",
-            "IGMH" => "4",
+        let upper = method.trim().to_uppercase();
+        let submenu = match upper.as_str() {
+            "NCI" | "RDG" => "1",
+            "PROMOL_NCI" => "2",
+            "ANCI" => "3",
+            "IRI" => "4",
             "DORI" => "5",
-            "ARDG" => "6",
-            "HIRSHFELD" => "7",
+            "VDW" => "6",
+            "IGM" => "10",
+            "MIGM" => "-10",
+            "IGMH" => "11",
             _ => "1",
         };
         let grid = Self::grid_code(grid_quality);
-        if submenu == "7" {
-            return vec![
-                "20".into(),
-                "7".into(),
-                "1".into(),
-                grid.into(),
-                "".into(),
-                "".into(),
-                "0".into(),
-                "0".into(),
-                "q".into(),
-            ];
-        }
-        let out_choice = if output_mode.eq_ignore_ascii_case("cube") {
-            "1"
-        } else {
-            "2"
-        };
         let mut cmds = vec!["20".to_string(), submenu.to_string()];
-        if let Some(frag) = fragment_atoms {
-            let trimmed = frag.trim();
-            if !trimmed.is_empty() && (submenu == "2" || submenu == "4") {
-                cmds.extend(["1".into(), trimmed.into(), "0".into(), "1".into()]);
+
+        // IGM (10), mIGM (-10), IGMH (11) ask for fragment definitions first
+        if matches!(submenu, "10" | "-10" | "11") {
+            let frag = fragment_atoms.unwrap_or("").trim();
+            if frag.is_empty() {
+                // Single fragment (whole system)
+                cmds.extend(["1".into(), "a".into()]);
+            } else if let Some((f1, f2)) = frag.split_once(';') {
+                cmds.extend(["2".into(), f1.trim().into(), f2.trim().into()]);
             } else {
-                cmds.push("1".into());
+                // Two fragments: user-supplied fragment 1 + complementary set 'c'
+                cmds.extend(["2".into(), frag.into(), "c".into()]);
             }
-        } else {
-            cmds.push("1".into());
         }
-        cmds.extend([
-            grid.into(),
-            out_choice.into(),
-            "0".into(),
-            "0".into(),
-            "q".into(),
-        ]);
+
+        cmds.push(grid.into());
+
+        match output_mode.to_lowercase().as_str() {
+            "cube" => cmds.push("3".into()),
+            "both" => {
+                cmds.push("2".into());
+                cmds.push("3".into());
+            }
+            _ => cmds.push("2".into()), // scatter -> output.txt
+        }
+
+        // Per Multiwfn 3.8 behavior (EXPERIENCE E12), stop after exiting post-processing ('0')
+        // for IGM/IGMH or exit cleanly for NCI/IRI/DORI
+        cmds.push("0".into());
+        if !matches!(submenu, "10" | "-10" | "11") {
+            cmds.push("0".into());
+            cmds.push("q".into());
+        }
         cmds
+    }
+
+    pub fn mpp_planarity_commands(heavy_only: bool) -> Vec<String> {
+        vec![
+            "26".into(),
+            "3".into(),
+            if heavy_only { "h".into() } else { "a".into() },
+            "n".into(),
+            "0".into(),
+            "-10".into(),
+            "q".into(),
+        ]
+    }
+
+    pub fn esp_surface_commands(grid_spacing: f64) -> Vec<String> {
+        let spacing = grid_spacing.clamp(0.10, 0.50);
+        vec![
+            "12".into(),
+            "3".into(),
+            format!("{spacing:.2}"),
+            "0".into(),
+            "-1".into(),
+            "-1".into(),
+            "q".into(),
+        ]
     }
 
     pub fn aromaticity_commands(method: &str) -> Vec<String> {

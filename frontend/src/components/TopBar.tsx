@@ -64,7 +64,7 @@ export const TopBar: React.FC<TopBarProps> = ({
 
         {/* Active Molecule Pill */}
         {inspection ? (
-          <div className="hidden lg:flex items-center gap-2 ml-2 px-2.5 py-1 rounded-xl bg-slate-900/90 border border-slate-700/70 text-xs whitespace-nowrap">
+          <div className="hidden xl:flex items-center gap-2 ml-2 px-2.5 py-1 rounded-xl bg-slate-900/90 border border-slate-700/70 text-xs whitespace-nowrap min-w-0 max-w-[420px] overflow-hidden">
             <span className="px-2 py-0.5 rounded-md bg-cyan-500/15 text-cyan-300 font-semibold border border-cyan-500/25">
               {summary?.formula || inspection.file_name}
             </span>

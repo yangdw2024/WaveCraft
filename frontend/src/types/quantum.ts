@@ -170,6 +170,7 @@ export interface Slice2DData {
 export interface IsosurfaceMesh {
   positions: number[];
   normals: number[];
+  colors?: number[];
   indices: number[];
   vertex_count: number;
   triangle_count: number;
@@ -181,6 +182,8 @@ export interface DualIsosurfaceResult {
   positive: IsosurfaceMesh;
   negative?: IsosurfaceMesh | null;
   metadata: CubeMetadata;
+  color_scale?: string;
+  color_range?: [number, number];
 }
 
 export interface DosPoint {
@@ -235,6 +238,8 @@ export interface NciPoint {
   z: number;
   sign_lambda2_rho: number;
   rdg: number;
+  dg_intra?: number | null;
+  dg_total?: number | null;
 }
 
 export interface AromaticityResult {
@@ -330,4 +335,50 @@ export interface CdftAtomEntry {
   f_plus?: number | null;
   f_zero?: number | null;
   dual_descriptor?: number | null;
+}
+
+export interface AtomDeviation {
+  atom_index: number;
+  element: string;
+  deviation_angstrom: number;
+}
+
+export interface PlanarityResult {
+  mpp_angstrom?: number | null;
+  sdp_angstrom?: number | null;
+  max_positive_angstrom?: number | null;
+  max_negative_angstrom?: number | null;
+  atom_deviations: AtomDeviation[];
+}
+
+export interface EspSurfaceResult {
+  volume_angstrom3?: number | null;
+  density_g_cm3?: number | null;
+  vs_min_kcal?: number | null;
+  vs_max_kcal?: number | null;
+  overall_area_angstrom2?: number | null;
+  positive_area_angstrom2?: number | null;
+  negative_area_angstrom2?: number | null;
+  sigma2_tot_kcal2?: number | null;
+  sigma2_pos_kcal2?: number | null;
+  sigma2_neg_kcal2?: number | null;
+  balance_nu?: number | null;
+  internal_charge_sep_pi_kcal?: number | null;
+  mpi_ev?: number | null;
+  mpi_kcal?: number | null;
+  nonpolar_area_pct?: number | null;
+  polar_area_pct?: number | null;
+}
+
+export interface ZmyBatchRow {
+  name: string;
+  file_path: string;
+  atom_count: number;
+  homo_ev?: number | null;
+  lumo_ev?: number | null;
+  gap_ev?: number | null;
+  dipole_debye?: number | null;
+  mpp_angstrom?: number | null;
+  sdp_angstrom?: number | null;
+  esp?: EspSurfaceResult | null;
 }

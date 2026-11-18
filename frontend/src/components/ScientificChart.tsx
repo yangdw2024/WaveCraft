@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
+import { Camera, Download, Maximize2, Minimize2 } from 'lucide-react';
 import type {
   BondOrderEntry,
   ChargeEntry,
@@ -358,62 +359,400 @@ export const SpectrumChart: React.FC<{ curve: SpectrumCurve }> = ({ curve }) => 
   );
 };
 
+function getBgrScatterColor(s: number): string {
+  // Continuous Multiwfn / gnuplot BGR color mapping:
+  // s = sign(lambda2) * rho
+  // <= -0.04: Royal Blue (Strong attractive, H-bonds)
+  // -0.02: Cyan
+  // 0.00: Emerald Green (vdW, pi-pi stacking)
+  // +0.012: Amber Yellow
+  // >= +0.02: Bright Red (Steric clash, ring strain)
+  if (s <= -0.04) return '#2563eb';
+  if (s < -0.015) {
+    const t = (s - -0.04) / 0.025;
+    const r = Math.round(37 + (6 - 37) * t);
+    const g = Math.round(99 + (182 - 99) * t);
+    const b = Math.round(235 + (212 - 235) * t);
+    return `rgb(${r},${g},${b})`;
+  }
+  if (s < 0.0) {
+    const t = (s - -0.015) / 0.015;
+    const r = Math.round(6 + (34 - 6) * t);
+    const g = Math.round(182 + (197 - 182) * t);
+    const b = Math.round(212 + (94 - 212) * t);
+    return `rgb(${r},${g},${b})`;
+  }
+  if (s < 0.012) {
+    const t = s / 0.012;
+    const r = Math.round(34 + (234 - 34) * t);
+    const g = Math.round(197 + (179 - 197) * t);
+    const b = Math.round(94 + (8 - 94) * t);
+    return `rgb(${r},${g},${b})`;
+  }
+  if (s < 0.022) {
+    const t = (s - 0.012) / 0.01;
+    const r = Math.round(234 + (239 - 234) * t);
+    const g = Math.round(179 + (68 - 179) * t);
+    const b = Math.round(8 + (68 - 8) * t);
+    return `rgb(${r},${g},${b})`;
+  }
+  return '#ef4444';
+}
+
 export const NciScatterChart: React.FC<{ points: NciPoint[]; method: string }> = ({
   points,
   method,
 }) => {
+  const [customMaxY, setCustomMaxY] = useState<number | 'auto'>('auto');
+  const [isMaximized, setIsMaximized] = useState(false);
+  const [hoveredPoint, setHoveredPoint] = useState<NciPoint | null>(null);
+  const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+
   if (points.length === 0) return null;
-  const w = 700;
-  const h = 360;
-  const padL = 56;
-  const padR = 24;
-  const padT = 34;
-  const padB = 46;
+
+  const isIgm = method.includes('IGM');
+
+  // Compute real data maxima
+  const realMaxY = useMemo(() => {
+    let m = 0;
+    for (const p of points) {
+      if (p.rdg > m) m = p.rdg;
+    }
+    return m;
+  }, [points]);
+
+  // Dynamic scientific Y-axis ceiling:
+  // For IGMH, dg_inter max is typically ~0.025-0.038 a.u. Defaulting to ~0.035-0.040 gives full resolution!
+  const activeMaxY = useMemo(() => {
+    if (typeof customMaxY === 'number') return customMaxY;
+    if (isIgm) {
+      const target = Math.max(0.025, realMaxY * 1.15);
+      return Math.ceil(target * 100) / 100;
+    }
+    return Math.max(1.5, Math.ceil(realMaxY * 1.1));
+  }, [customMaxY, isIgm, realMaxY]);
+
+  const w = isMaximized ? 1100 : 720;
+  const h = isMaximized ? 640 : 380;
+  const padL = 68;
+  const padR = 28;
+  const padT = 38;
+  const padB = 48;
   const plotW = w - padL - padR;
   const plotH = h - padT - padB;
 
   const minX = -0.05;
   const maxX = 0.05;
-  const maxY = 2.0;
 
   const xOf = (s: number) => padL + ((Math.max(minX, Math.min(maxX, s)) - minX) / (maxX - minX)) * plotW;
-  const yOf = (r: number) => padT + (1 - Math.max(0, Math.min(maxY, r)) / maxY) * plotH;
+  const yOf = (r: number) => padT + (1 - Math.max(0, Math.min(activeMaxY, r)) / activeMaxY) * plotH;
+
+  const yTicks = useMemo(() => {
+    return [0, activeMaxY * 0.25, activeMaxY * 0.5, activeMaxY * 0.75, activeMaxY];
+  }, [activeMaxY]);
+
+  const exportSvg = () => {
+    if (!svgRef.current) return;
+    const svgData = new XMLSerializer().serializeToString(svgRef.current);
+    const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `wavecraft_${method}_scatter.svg`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-auto rounded-xl bg-[#090e17] border border-slate-800">
-      <text x={padL} y={20} fill="#cbd5e1" fontSize="12" fontWeight="600">
-        {method} 弱相互作用散点图 · RDG vs sign(λ₂)ρ ({points.length.toLocaleString()} 点)
-      </text>
-      <line x1={xOf(0)} y1={padT} x2={xOf(0)} y2={padT + plotH} stroke="#334155" strokeDasharray="4 3" />
-      <line x1={padL} y1={yOf(0.5)} x2={padL + plotW} y2={yOf(0.5)} stroke="rgba(56,189,248,0.25)" strokeDasharray="3 3" />
+    <div
+      className={
+        isMaximized
+          ? 'fixed inset-0 z-50 bg-[#070b12] p-6 flex flex-col items-center justify-center backdrop-blur-xl'
+          : 'relative rounded-2xl bg-[#090e17] border border-slate-800 p-3 space-y-2'
+      }
+    >
+      {/* Chart Header & Controls */}
+      <div className="flex items-center justify-between gap-2 flex-wrap px-1">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-slate-200">
+            {method} {isIgm ? '分子间独立梯度模型 (IGMH)' : '非共价相互作用 (NCI)'} 散点图
+          </span>
+          <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400">
+            {points.length.toLocaleString()} 采样点 · Y峰值: {realMaxY.toFixed(4)} a.u.
+          </span>
+        </div>
 
-      {points.map((p, i) => {
-        const s = p.sign_lambda2_rho;
-        const fill =
-          s < -0.01 ? '#3b82f6' : s > 0.01 ? '#ef4444' : '#22c55e';
-        return (
-          <circle
-            key={i}
-            cx={xOf(s)}
-            cy={yOf(p.rdg)}
-            r={1.6}
-            fill={fill}
-            fillOpacity={0.68}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {/* Y Range Selector */}
+          <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-[10px] font-mono">
+            <span className="text-slate-500 px-1.5">Y量程:</span>
+            <button
+              onClick={() => setCustomMaxY('auto')}
+              className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                customMaxY === 'auto'
+                  ? 'bg-sky-500/20 text-sky-300 font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="自动自适应最优显示区间"
+            >
+              自动 ({activeMaxY.toFixed(activeMaxY < 0.1 ? 3 : 2)})
+            </button>
+            {isIgm ? (
+              <>
+                <button
+                  onClick={() => setCustomMaxY(0.04)}
+                  className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                    customMaxY === 0.04
+                      ? 'bg-sky-500/20 text-sky-300 font-bold'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="IGMH 经典标准量程 (0 ~ 0.04 a.u.)"
+                >
+                  0.04 (标准)
+                </button>
+                <button
+                  onClick={() => setCustomMaxY(0.08)}
+                  className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                    customMaxY === 0.08
+                      ? 'bg-sky-500/20 text-sky-300 font-bold'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  0.08
+                </button>
+                <button
+                  onClick={() => setCustomMaxY(2.0)}
+                  className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                    customMaxY === 2.0
+                      ? 'bg-sky-500/20 text-sky-300 font-bold'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="全尺度 RDG 范围"
+                >
+                  2.0 (全景)
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => setCustomMaxY(1.0)}
+                  className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                    customMaxY === 1.0 ? 'bg-sky-500/20 text-sky-300' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  1.0
+                </button>
+                <button
+                  onClick={() => setCustomMaxY(2.0)}
+                  className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                    customMaxY === 2.0 ? 'bg-sky-500/20 text-sky-300' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  2.0 (标准)
+                </button>
+              </>
+            )}
+          </div>
+
+          <button
+            onClick={exportSvg}
+            className="p-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-sky-300 transition cursor-pointer"
+            title="导出出版级矢量 SVG 图表"
+          >
+            <Download className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            onClick={() => setIsMaximized((v) => !v)}
+            className={`p-1 rounded-lg border transition cursor-pointer ${
+              isMaximized
+                ? 'bg-amber-500/20 border-amber-400/40 text-amber-200'
+                : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-sky-300'
+            }`}
+            title={isMaximized ? '退出全屏' : '全屏最大化'}
+          >
+            {isMaximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+      </div>
+
+      {/* SVG Canvas */}
+      <div className="relative w-full flex items-center justify-center overflow-hidden">
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${w} ${h}`}
+          className="w-full h-auto rounded-xl select-none"
+          onMouseMove={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const svgX = ((e.clientX - rect.left) / rect.width) * w;
+            const svgY = ((e.clientY - rect.top) / rect.height) * h;
+            setMousePos({ x: svgX, y: svgY });
+
+            // Find closest point within threshold
+            if (svgX >= padL && svgX <= padL + plotW && svgY >= padT && svgY <= padT + plotH) {
+              const invS = minX + ((svgX - padL) / plotW) * (maxX - minX);
+              const invY = (1 - (svgY - padT) / plotH) * activeMaxY;
+              let best: NciPoint | null = null;
+              let bestDist = Infinity;
+              for (const p of points) {
+                const dx = (p.sign_lambda2_rho - invS) / (maxX - minX);
+                const dy = (p.rdg - invY) / activeMaxY;
+                const d = dx * dx + dy * dy;
+                if (d < bestDist && d < 0.003) {
+                  bestDist = d;
+                  best = p;
+                }
+              }
+              setHoveredPoint(best);
+            } else {
+              setHoveredPoint(null);
+            }
+          }}
+          onMouseLeave={() => {
+            setHoveredPoint(null);
+            setMousePos(null);
+          }}
+        >
+          {/* Background grid */}
+          <rect x={padL} y={padT} width={plotW} height={plotH} fill="#060a10" rx={6} />
+
+          {/* Zero reference vertical line */}
+          <line
+            x1={xOf(0)}
+            y1={padT}
+            x2={xOf(0)}
+            y2={padT + plotH}
+            stroke="#334155"
+            strokeWidth="1.2"
+            strokeDasharray="4 3"
           />
-        );
-      })}
 
-      <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="#475569" />
-      <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke="#475569" />
-      {[-0.05, -0.025, 0, 0.025, 0.05].map((v, i) => (
-        <text key={i} x={xOf(v)} y={padT + plotH + 17} textAnchor="middle" fill="#94a3b8" fontSize="10" fontFamily="monospace">
-          {v.toFixed(3)}
-        </text>
-      ))}
-      <text x={padL + plotW / 2} y={h - 6} textAnchor="middle" fill="#cbd5e1" fontSize="11">
-        sign(λ₂)ρ (a.u.) · 蓝=氢键强吸引 / 绿=范德华 / 红=位阻排斥
-      </text>
-    </svg>
+          {/* Horizontal Grid lines */}
+          {yTicks.map((val, idx) => {
+            const y = yOf(val);
+            return (
+              <g key={idx}>
+                <line
+                  x1={padL}
+                  y1={y}
+                  x2={padL + plotW}
+                  y2={y}
+                  stroke="rgba(51, 65, 85, 0.45)"
+                  strokeDasharray="3 3"
+                />
+                <text
+                  x={padL - 10}
+                  y={y + 4}
+                  textAnchor="end"
+                  fill="#94a3b8"
+                  fontSize="10"
+                  fontFamily="monospace"
+                >
+                  {val.toFixed(val < 0.1 ? 3 : 2)}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* Scatter points rendered with smooth continuous BGR colors */}
+          {points.map((p, i) => {
+            const s = p.sign_lambda2_rho;
+            const fill = getBgrScatterColor(s);
+            const cx = xOf(s);
+            const cy = yOf(p.rdg);
+            return (
+              <circle
+                key={i}
+                cx={cx}
+                cy={cy}
+                r={1.75}
+                fill={fill}
+                fillOpacity={0.72}
+              />
+            );
+          })}
+
+          {/* Coordinate axes */}
+          <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="#475569" strokeWidth="1.2" />
+          <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke="#475569" strokeWidth="1.2" />
+
+          {/* X ticks */}
+          {[-0.05, -0.025, 0, 0.025, 0.05].map((v, i) => (
+            <g key={i}>
+              <line x1={xOf(v)} y1={padT + plotH} x2={xOf(v)} y2={padT + plotH + 5} stroke="#475569" />
+              <text
+                x={xOf(v)}
+                y={padT + plotH + 18}
+                textAnchor="middle"
+                fill="#94a3b8"
+                fontSize="10"
+                fontFamily="monospace"
+              >
+                {v.toFixed(3)}
+              </text>
+            </g>
+          ))}
+
+          {/* X Axis Label */}
+          <text x={padL + plotW / 2} y={h - 10} textAnchor="middle" fill="#cbd5e1" fontSize="11" fontWeight="500">
+            sign(λ₂)ρ (a.u.) · 蓝色: 强吸引(氢键) | 绿色: 范德华/π-π堆积 | 红色: 位阻排斥
+          </text>
+
+          {/* Y Axis Label */}
+          <text
+            x={16}
+            y={padT + plotH / 2}
+            textAnchor="middle"
+            transform={`rotate(-90 16 ${padT + plotH / 2})`}
+            fill="#cbd5e1"
+            fontSize="11"
+            fontWeight="500"
+          >
+            {isIgm ? 'δg_inter (分子间弱相互作用强度, a.u.)' : 'RDG (折减密度梯度, a.u.)'}
+          </text>
+
+          {/* Hover highlight indicator */}
+          {hoveredPoint && (
+            <g>
+              <circle
+                cx={xOf(hoveredPoint.sign_lambda2_rho)}
+                cy={yOf(hoveredPoint.rdg)}
+                r={5}
+                fill="none"
+                stroke="#facc15"
+                strokeWidth="2"
+              />
+            </g>
+          )}
+        </svg>
+
+        {/* Hover Point Tooltip */}
+        {hoveredPoint && mousePos && (
+          <div
+            className="pointer-events-none absolute px-2.5 py-1.5 rounded-lg bg-slate-950/90 border border-slate-700 text-[11px] font-mono shadow-2xl backdrop-blur text-slate-200 z-20"
+            style={{
+              left: Math.min(w - 180, Math.max(20, mousePos.x + 12)),
+              top: Math.max(10, mousePos.y - 48),
+            }}
+          >
+            <div className="font-semibold text-cyan-300">
+              sign(λ₂)ρ = {hoveredPoint.sign_lambda2_rho.toFixed(4)} a.u.
+            </div>
+            <div className="text-slate-300">
+              {isIgm ? 'δg_inter' : 'RDG'} = {hoveredPoint.rdg.toFixed(4)} a.u.
+            </div>
+            <div className="text-[10px] text-slate-400">
+              {hoveredPoint.sign_lambda2_rho < -0.015
+                ? '强相互作用 (强吸引/氢键)'
+                : hoveredPoint.sign_lambda2_rho > 0.015
+                  ? '空间位阻排斥 (环张力/碰撞)'
+                  : '弱相互作用 (范德华 / π-π 堆积)'}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 };
 

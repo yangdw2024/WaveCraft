@@ -61,6 +61,8 @@ pub struct Slice2DData {
 pub struct IsosurfaceMesh {
     pub positions: Vec<f32>,
     pub normals: Vec<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub colors: Option<Vec<f32>>,
     pub indices: Vec<u32>,
     pub vertex_count: usize,
     pub triangle_count: usize,
@@ -73,6 +75,10 @@ pub struct DualIsosurfaceResult {
     pub positive: IsosurfaceMesh,
     pub negative: Option<IsosurfaceMesh>,
     pub metadata: CubeMetadata,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_scale: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_range: Option<[f64; 2]>,
 }
 
 #[derive(Debug, Clone)]
@@ -86,6 +92,46 @@ pub struct CubeData {
     pub values: Vec<f32>,     // Row-major (ix, iy, iz) where iz is fastest
     pub min_value: f64,
     pub max_value: f64,
+}
+
+pub fn bgr_color_map(val: f64) -> [f32; 3] {
+    // Multiwfn & VMD BGR colormap for sign(lambda2)rho
+    // Blue (attractive, <= -0.04) -> Green (van der Waals, ~0.0) -> Red (steric, >= 0.02)
+    if val <= -0.04 {
+        [0.05, 0.25, 0.95]
+    } else if val < 0.0 {
+        let t = ((val + 0.04) / 0.04) as f32; // 0.0 at -0.04, 1.0 at 0.0
+        let r = 0.05 * (1.0 - t) + 0.05 * t;
+        let g = 0.25 * (1.0 - t) + 0.85 * t;
+        let b = 0.95 * (1.0 - t) + 0.15 * t;
+        [r, g, b]
+    } else if val < 0.02 {
+        let t = (val / 0.02) as f32; // 0.0 at 0.0, 1.0 at 0.02
+        let r = 0.05 * (1.0 - t) + 0.95 * t;
+        let g = 0.85 * (1.0 - t) + 0.15 * t;
+        let b = 0.15 * (1.0 - t) + 0.12 * t;
+        [r, g, b]
+    } else {
+        [0.95, 0.12, 0.12]
+    }
+}
+
+pub fn bwr_color_map(val: f64) -> [f32; 3] {
+    // Blue-White-Red colormap for ESP (-25 to +25 kcal/mol)
+    let clamped = val.clamp(-25.0, 25.0);
+    if clamped < 0.0 {
+        let t = ((clamped + 25.0) / 25.0) as f32; // 0.0 at -25, 1.0 at 0
+        let r = 0.10 * (1.0 - t) + 0.95 * t;
+        let g = 0.30 * (1.0 - t) + 0.95 * t;
+        let b = 0.95 * (1.0 - t) + 0.95 * t;
+        [r, g, b]
+    } else {
+        let t = (clamped / 25.0) as f32; // 0.0 at 0, 1.0 at +25
+        let r = 0.95 * (1.0 - t) + 0.95 * t;
+        let g = 0.95 * (1.0 - t) + 0.18 * t;
+        let b = 0.95 * (1.0 - t) + 0.18 * t;
+        [r, g, b]
+    }
 }
 
 impl CubeData {
@@ -412,12 +458,69 @@ impl CubeData {
         }
     }
 
+    pub fn sample_at(&self, x: f64, y: f64, z: f64) -> f64 {
+        let dx = x - self.origin[0];
+        let dy = y - self.origin[1];
+        let dz = z - self.origin[2];
+
+        let step_x = self.axes[0][0];
+        let step_y = self.axes[1][1];
+        let step_z = self.axes[2][2];
+        if step_x.abs() < 1e-12 || step_y.abs() < 1e-12 || step_z.abs() < 1e-12 {
+            return 0.0;
+        }
+
+        let gx = (dx / step_x).clamp(0.0, (self.dims[0].saturating_sub(1)) as f64);
+        let gy = (dy / step_y).clamp(0.0, (self.dims[1].saturating_sub(1)) as f64);
+        let gz = (dz / step_z).clamp(0.0, (self.dims[2].saturating_sub(1)) as f64);
+
+        let x0 = (gx.floor() as usize).min(self.dims[0] - 1);
+        let x1 = (x0 + 1).min(self.dims[0] - 1);
+        let fx = (gx - x0 as f64) as f32;
+
+        let y0 = (gy.floor() as usize).min(self.dims[1] - 1);
+        let y1 = (y0 + 1).min(self.dims[1] - 1);
+        let fy = (gy - y0 as f64) as f32;
+
+        let z0 = (gz.floor() as usize).min(self.dims[2] - 1);
+        let z1 = (z0 + 1).min(self.dims[2] - 1);
+        let fz = (gz - z0 as f64) as f32;
+
+        let c000 = self.get(x0, y0, z0);
+        let c100 = self.get(x1, y0, z0);
+        let c010 = self.get(x0, y1, z0);
+        let c110 = self.get(x1, y1, z0);
+        let c001 = self.get(x0, y0, z1);
+        let c101 = self.get(x1, y0, z1);
+        let c011 = self.get(x0, y1, z1);
+        let c111 = self.get(x1, y1, z1);
+
+        let c00 = c000 * (1.0 - fx) + c100 * fx;
+        let c10 = c010 * (1.0 - fx) + c110 * fx;
+        let c01 = c001 * (1.0 - fx) + c101 * fx;
+        let c11 = c011 * (1.0 - fx) + c111 * fx;
+
+        let c0 = c00 * (1.0 - fy) + c10 * fy;
+        let c1 = c01 * (1.0 - fy) + c11 * fy;
+
+        (c0 * (1.0 - fz) + c1 * fz) as f64
+    }
+
     pub fn extract_dual_isosurface(&self, isovalue: f64) -> DualIsosurfaceResult {
+        self.extract_mapped_isosurface(isovalue, None, "dual")
+    }
+
+    pub fn extract_mapped_isosurface(
+        &self,
+        isovalue: f64,
+        color_cube: Option<&CubeData>,
+        color_mode: &str,
+    ) -> DualIsosurfaceResult {
         let iso = isovalue.abs().max(1e-6);
-        let positive = self.marching_cubes(iso as f32, false);
-        let has_negative = self.min_value <= -iso;
+        let positive = self.marching_cubes(iso as f32, false, color_cube, Some(color_mode));
+        let has_negative = color_cube.is_none() && self.min_value <= -iso;
         let negative = if has_negative {
-            let neg_mesh = self.marching_cubes(iso as f32, true);
+            let neg_mesh = self.marching_cubes(iso as f32, true, None, None);
             if neg_mesh.triangle_count > 0 {
                 Some(neg_mesh)
             } else {
@@ -427,12 +530,24 @@ impl CubeData {
             None
         };
 
+        let (scale_str, range_val) = if color_cube.is_some() {
+            if color_mode.eq_ignore_ascii_case("bwr") {
+                (Some("bwr".to_string()), Some([-25.0, 25.0]))
+            } else {
+                (Some("bgr".to_string()), Some([-0.04, 0.02]))
+            }
+        } else {
+            (None, None)
+        };
+
         DualIsosurfaceResult {
             isovalue: iso,
             has_negative: negative.is_some(),
             positive,
             negative,
             metadata: self.metadata(),
+            color_scale: scale_str,
+            color_range: range_val,
         }
     }
 
@@ -469,24 +584,32 @@ impl CubeData {
         [-gx, -gy, -gz]
     }
 
-    fn marching_cubes(&self, isovalue: f32, negate: bool) -> IsosurfaceMesh {
+    fn marching_cubes(
+        &self,
+        isovalue: f32,
+        negate: bool,
+        color_cube: Option<&CubeData>,
+        color_mode: Option<&str>,
+    ) -> IsosurfaceMesh {
         let [nx, ny, nz] = self.dims;
         if nx < 2 || ny < 2 || nz < 2 {
             return IsosurfaceMesh {
                 positions: Vec::new(),
                 normals: Vec::new(),
+                colors: None,
                 indices: Vec::new(),
                 vertex_count: 0,
                 triangle_count: 0,
             };
         }
 
-        // Stride down large grids (> 140 on any axis) for ultra-responsive WebGL meshes
+        // Stride down large grids (> 160 on any axis) for ultra-responsive WebGL meshes
         let max_dim = nx.max(ny).max(nz);
         let stride = if max_dim > 160 { 2usize } else { 1usize };
 
         let mut positions: Vec<f32> = Vec::new();
         let mut normals: Vec<f32> = Vec::new();
+        let mut colors: Vec<f32> = Vec::new();
         let mut indices: Vec<u32> = Vec::new();
 
         // Corner offsets in (ix, iy, iz) following Paul Bourke convention
@@ -601,6 +724,18 @@ impl CubeData {
                         for &ei in &[e0, e1, e2] {
                             positions.extend_from_slice(&vert_list[ei]);
                             normals.extend_from_slice(&norm_list[ei]);
+                            if let Some(cc) = color_cube {
+                                let val = cc.sample_at(
+                                    vert_list[ei][0] as f64,
+                                    vert_list[ei][1] as f64,
+                                    vert_list[ei][2] as f64,
+                                );
+                                let rgb = match color_mode {
+                                    Some("bwr") => bwr_color_map(val),
+                                    _ => bgr_color_map(val),
+                                };
+                                colors.extend_from_slice(&rgb);
+                            }
                         }
                         indices.push(base);
                         indices.push(base + 1);
@@ -622,6 +757,7 @@ impl CubeData {
         IsosurfaceMesh {
             positions,
             normals,
+            colors: if color_cube.is_some() { Some(colors) } else { None },
             indices,
             vertex_count,
             triangle_count,

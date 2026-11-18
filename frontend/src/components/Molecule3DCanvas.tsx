@@ -3,10 +3,13 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import {
   Camera,
+  Compass,
   Eye,
   EyeOff,
+  GripHorizontal,
   Layers,
   Maximize2,
+  Minimize2,
   RotateCw,
   Ruler,
   Tag,
@@ -32,6 +35,8 @@ interface Molecule3DCanvasProps {
   onIsoOpacityChange?: (v: number) => void;
   title?: string;
   heightClass?: string;
+  defaultHeight?: number;
+  resizable?: boolean;
 }
 
 type RenderStyle = 'ball-stick' | 'spacefill' | 'wireframe';
@@ -62,6 +67,13 @@ function buildMeshGeometry(mesh: IsosurfaceMesh): THREE.BufferGeometry {
       new THREE.Float32BufferAttribute(mesh.normals, 3)
     );
   }
+  // Vertex color binding for mapped isosurfaces (e.g. sign(lambda2)*rho or ESP)
+  if (mesh.colors && mesh.colors.length === mesh.positions.length) {
+    geom.setAttribute(
+      'color',
+      new THREE.Float32BufferAttribute(mesh.colors, 3)
+    );
+  }
   geom.setIndex(mesh.indices);
   if (mesh.normals.length !== mesh.positions.length) {
     geom.computeVertexNormals();
@@ -80,6 +92,8 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
   onIsoOpacityChange,
   title = '3D 量子分子视口',
   heightClass = 'h-[500px]',
+  defaultHeight,
+  resizable = true,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -88,6 +102,19 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
   const sceneRef = useRef<THREE.Scene | null>(null);
   const atomMeshesRef = useRef<THREE.Mesh[]>([]);
   const centerOffsetRef = useRef<THREE.Vector3>(new THREE.Vector3());
+
+  // Dynamic Viewport Height & Fullscreen Maximize state
+  const initialHeight = useMemo(() => {
+    if (defaultHeight) return defaultHeight;
+    const match = heightClass.match(/h-\[(\d+)px\]/);
+    return match ? parseInt(match[1], 10) : 480;
+  }, [defaultHeight, heightClass]);
+
+  const [viewportHeight, setViewportHeight] = useState<number>(initialHeight);
+  const [isMaximized, setIsMaximized] = useState(false);
+  const [isDraggingHeight, setIsDraggingHeight] = useState(false);
+  const dragStartYRef = useRef(0);
+  const dragStartHeightRef = useRef(0);
 
   const [style, setStyle] = useState<RenderStyle>('ball-stick');
   const [autoRotate, setAutoRotate] = useState(false);
@@ -99,6 +126,62 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
   const [labelOverlays, setLabelOverlays] = useState<
     { index: number; text: string; x: number; y: number; visible: boolean }[]
   >([]);
+
+  const startDragHeight = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDraggingHeight(true);
+    dragStartYRef.current = e.clientY;
+    dragStartHeightRef.current = viewportHeight;
+
+    const onMouseMove = (ev: MouseEvent) => {
+      const delta = ev.clientY - dragStartYRef.current;
+      const nextH = Math.max(260, Math.min(1200, dragStartHeightRef.current + delta));
+      setViewportHeight(nextH);
+    };
+
+    const onMouseUp = () => {
+      setIsDraggingHeight(false);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  const setCameraPreset = (view: 'side' | 'top' | 'front' | 'fit') => {
+    const cam = cameraRef.current;
+    const ctrl = controlsRef.current;
+    if (!cam || !ctrl) return;
+    const center = centerOffsetRef.current;
+    let maxR = 2.0;
+    for (const a of atoms) {
+      const d = Math.hypot(a.x - center.x, a.y - center.y, a.z - center.z);
+      if (d > maxR) maxR = d;
+    }
+    const dist = maxR * (isosurface ? 2.6 : 2.1);
+    ctrl.target.set(0, 0, 0);
+
+    if (view === 'side') {
+      // 90° Side View along X-axis: ideal for observing π-π stacking layer separation
+      cam.position.set(dist * 1.5, 0, 0);
+      cam.up.set(0, 0, 1);
+    } else if (view === 'top') {
+      // Top View along Y-axis
+      cam.position.set(0, dist * 1.5, 0);
+      cam.up.set(0, 0, -1);
+    } else if (view === 'front') {
+      // Front View along Z-axis
+      cam.position.set(0, 0, dist * 1.5);
+      cam.up.set(0, 1, 0);
+    } else {
+      // Reset Isometric
+      cam.position.set(dist * 1.15, dist * 0.85, dist * 1.35);
+      cam.up.set(0, 1, 0);
+    }
+    cam.lookAt(0, 0, 0);
+    ctrl.update();
+  };
 
   const chargeMap = useMemo(() => {
     const m = new Map<number, number>();
@@ -393,16 +476,18 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
       }
     }
 
-    // Dual-phase 3D Marching Cubes Isosurface
+    // Dual-phase 3D Marching Cubes Isosurface (supports mapped BGR / BWR vertex colors)
     if (showIso && isosurface) {
       if (isosurface.positive && isosurface.positive.triangle_count > 0) {
+        const hasColors = !!(isosurface.positive.colors && isosurface.positive.colors.length > 0);
         const posGeom = buildMeshGeometry(isosurface.positive);
         const posMat = new THREE.MeshPhysicalMaterial({
-          color: isosurface.has_negative ? 0x0ea5e9 : 0x22d3ee,
+          color: hasColors ? 0xffffff : (isosurface.has_negative ? 0x0ea5e9 : 0x22d3ee),
+          vertexColors: hasColors,
           transparent: true,
           opacity: isoOpacity,
-          roughness: 0.22,
-          metalness: 0.05,
+          roughness: 0.28,
+          metalness: 0.08,
           side: THREE.DoubleSide,
           wireframe: isoWireframe,
           depthWrite: false,
@@ -413,13 +498,15 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
       }
 
       if (isosurface.negative && isosurface.negative.triangle_count > 0) {
+        const hasColors = !!(isosurface.negative.colors && isosurface.negative.colors.length > 0);
         const negGeom = buildMeshGeometry(isosurface.negative);
         const negMat = new THREE.MeshPhysicalMaterial({
-          color: 0xf43f5e,
+          color: hasColors ? 0xffffff : 0xf43f5e,
+          vertexColors: hasColors,
           transparent: true,
           opacity: isoOpacity,
-          roughness: 0.22,
-          metalness: 0.05,
+          roughness: 0.28,
+          metalness: 0.08,
           side: THREE.DoubleSide,
           wireframe: isoWireframe,
           depthWrite: false,
@@ -480,8 +567,11 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
       const h = el.clientHeight;
       if (w <= 0 || h <= 0) return;
 
+      cam.updateMatrixWorld();
       const center = centerOffsetRef.current;
-      const next = atoms.map((a) => {
+      const next = atoms
+        .filter((a) => atoms.length <= 45 || (a.symbol !== 'H' && atoms.length <= 90))
+        .map((a) => {
         const v = new THREE.Vector3(a.x - center.x, a.y - center.y, a.z - center.z);
         v.project(cam);
         const x = Math.round((v.x * 0.5 + 0.5) * w);
@@ -573,9 +663,15 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
   };
 
   return (
-    <div className="glass-panel rounded-2xl overflow-hidden flex flex-col">
+    <div
+      className={
+        isMaximized
+          ? 'fixed inset-0 z-50 bg-[#070b12] p-4 flex flex-col backdrop-blur-xl'
+          : 'glass-panel rounded-2xl overflow-hidden flex flex-col'
+      }
+    >
       {/* Toolbar */}
-      <div className="px-3.5 py-2.5 border-b border-slate-800/80 flex items-center justify-between gap-2 flex-wrap bg-slate-950/60">
+      <div className="px-3.5 py-2.5 border-b border-slate-800/80 flex items-center justify-between gap-2 flex-wrap bg-slate-950/70">
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold text-slate-200">{title}</span>
           <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-slate-800 text-slate-400">
@@ -589,6 +685,31 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5 flex-wrap">
+          {/* Quick Camera Angles (Side view is critical for pi-pi dimer stacking) */}
+          <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-[11px]">
+            <button
+              onClick={() => setCameraPreset('side')}
+              className="px-2 py-0.5 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition cursor-pointer"
+              title="90° 侧视 (垂直于二聚体堆积平面，观察层间距与夹心层)"
+            >
+              侧视
+            </button>
+            <button
+              onClick={() => setCameraPreset('top')}
+              className="px-2 py-0.5 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition cursor-pointer"
+              title="顶视 (从上方俯瞰分子骨架)"
+            >
+              顶视
+            </button>
+            <button
+              onClick={() => setCameraPreset('fit')}
+              className="px-2 py-0.5 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition cursor-pointer"
+              title="轴测视角复位"
+            >
+              复位
+            </button>
+          </div>
+
           {(['ball-stick', 'spacefill', 'wireframe'] as RenderStyle[]).map((s) => (
             <button
               key={s}
@@ -667,12 +788,50 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
             <RotateCw className={`w-3.5 h-3.5 ${autoRotate ? 'animate-spin' : ''}`} />
           </button>
 
+          {/* Quick height presets */}
+          {!isMaximized && resizable && (
+            <div className="hidden sm:flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-[10px] font-mono">
+              <button
+                onClick={() => setViewportHeight(380)}
+                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  viewportHeight <= 400 ? 'bg-sky-500/20 text-sky-300' : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="紧凑高度 380px"
+              >
+                紧凑
+              </button>
+              <button
+                onClick={() => setViewportHeight(540)}
+                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  viewportHeight > 400 && viewportHeight <= 600 ? 'bg-sky-500/20 text-sky-300' : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="标准高度 540px"
+              >
+                标准
+              </button>
+              <button
+                onClick={() => setViewportHeight(760)}
+                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  viewportHeight > 600 ? 'bg-sky-500/20 text-sky-300' : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="大屏巨幕 760px"
+              >
+                巨幕
+              </button>
+            </div>
+          )}
+
+          {/* Fullscreen / Maximize */}
           <button
-            onClick={resetView}
-            className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 transition cursor-pointer"
-            title="重置视角"
+            onClick={() => setIsMaximized((v) => !v)}
+            className={`p-1.5 rounded-lg border transition cursor-pointer ${
+              isMaximized
+                ? 'bg-amber-500/20 border-amber-400/40 text-amber-200'
+                : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-sky-300'
+            }`}
+            title={isMaximized ? '退出全屏' : '全屏沉浸视口'}
           >
-            <Maximize2 className="w-3.5 h-3.5" />
+            {isMaximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
           </button>
 
           <button
@@ -685,13 +844,67 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
         </div>
       </div>
 
-      {/* Viewport */}
-      <div className={`relative w-full ${heightClass} bg-[#070b12] overflow-hidden`}>
+      {/* Viewport Canvas Container */}
+      <div
+        className="relative w-full bg-[#070b12] overflow-hidden select-none"
+        style={{
+          height: isMaximized ? 'calc(100vh - 80px)' : `${viewportHeight}px`,
+        }}
+      >
         <div
           ref={containerRef}
           onClick={handleCanvasClick}
           className="w-full h-full cursor-grab active:cursor-grabbing"
         />
+
+        {/* Floating Scientific BGR Colorbar (for mapped NCI / IGMH) */}
+        {isosurface?.color_scale === 'bgr' && (
+          <div className="absolute top-3 right-3 pointer-events-auto bg-slate-950/85 backdrop-blur-md border border-slate-700/60 rounded-xl p-2.5 shadow-xl flex flex-col gap-1.5 w-44">
+            <div className="flex items-center justify-between text-[10px] font-semibold text-slate-200">
+              <span>sign(λ₂)ρ 映射色阶</span>
+              <span className="font-mono text-cyan-400 text-[9px]">a.u.</span>
+            </div>
+            <div
+              className="h-3 rounded-full w-full border border-slate-700/50 shadow-inner"
+              style={{
+                background:
+                  'linear-gradient(to right, #2563eb 0%, #06b6d4 30%, #22c55e 50%, #eab308 75%, #ef4444 100%)',
+              }}
+            />
+            <div className="flex justify-between text-[9px] font-mono text-slate-400">
+              <span className="text-blue-400">&le; -0.04</span>
+              <span className="text-emerald-400">0.00</span>
+              <span className="text-rose-400">&ge; +0.02</span>
+            </div>
+            <div className="flex justify-between text-[8.5px] text-slate-400 leading-tight pt-0.5 border-t border-slate-800/80">
+              <span className="text-blue-300">强吸引</span>
+              <span className="text-emerald-300">范德华/π-π</span>
+              <span className="text-rose-300">位阻排斥</span>
+            </div>
+          </div>
+        )}
+
+        {/* Floating Scientific BWR Colorbar (for ESP) */}
+        {isosurface?.color_scale === 'bwr' && (
+          <div className="absolute top-3 right-3 pointer-events-auto bg-slate-950/85 backdrop-blur-md border border-slate-700/60 rounded-xl p-2.5 shadow-xl flex flex-col gap-1.5 w-40">
+            <div className="flex items-center justify-between text-[10px] font-semibold text-slate-200">
+              <span>ESP 静电势色阶</span>
+              <span className="font-mono text-cyan-400 text-[9px]">a.u.</span>
+            </div>
+            <div
+              className="h-3 rounded-full w-full border border-slate-700/50 shadow-inner"
+              style={{
+                background:
+                  'linear-gradient(to right, #2563eb 0%, #ffffff 50%, #ef4444 100%)',
+              }}
+            />
+            <div className="flex justify-between text-[9px] font-mono text-slate-400">
+              <span className="text-blue-400">-0.05</span>
+              <span className="text-slate-300">0.00</span>
+              <span className="text-rose-400">+0.05</span>
+            </div>
+          </div>
+        )}
 
         {/* Projected Atom Labels */}
         {showLabels &&
@@ -748,6 +961,24 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
           )}
         </div>
       </div>
+
+      {/* Draggable Height Resize Handle */}
+      {resizable && !isMaximized && (
+        <div
+          onMouseDown={startDragHeight}
+          className={`w-full h-3 bg-slate-900/90 hover:bg-sky-500/30 border-t border-slate-800 flex items-center justify-center cursor-row-resize transition select-none group ${
+            isDraggingHeight ? 'bg-sky-500/40' : ''
+          }`}
+          title="上下拖拽动态调整视口高度"
+        >
+          <div className="flex items-center gap-1.5 text-slate-500 group-hover:text-sky-300 transition-colors">
+            <GripHorizontal className="w-3.5 h-3.5" />
+            <span className="text-[10px] font-mono opacity-0 group-hover:opacity-100 transition-opacity">
+              {viewportHeight}px (拖拽自由伸缩)
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

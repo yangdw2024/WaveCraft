@@ -151,6 +151,10 @@ pub struct NciPoint {
     pub z: f64,
     pub sign_lambda2_rho: f64,
     pub rdg: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dg_intra: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dg_total: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1143,6 +1147,7 @@ pub fn parse_critical_points(
 
 pub fn parse_nci_points(content: &str, max_points: usize) -> Vec<NciPoint> {
     let mut pts = Vec::new();
+    let mut is_igm_format = false;
     for line in content.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 5 {
@@ -1160,6 +1165,33 @@ pub fn parse_nci_points(content: &str, max_points: usize) -> Vec<NciPoint> {
                         z: z * BOHR_TO_ANGSTROM,
                         sign_lambda2_rho: sign_rho,
                         rdg,
+                        dg_intra: None,
+                        dg_total: None,
+                    });
+                }
+            }
+        } else if parts.len() == 4 {
+            // IGM / IGMH output.txt: dg_inter, dg_intra, dg_total, sign(lambda2)rho
+            if let (Ok(dg_inter), Ok(dg_intra), Ok(dg_total), Ok(sign_rho)) = (
+                parts[0].parse::<f64>(),
+                parts[1].parse::<f64>(),
+                parts[2].parse::<f64>(),
+                parts[3].parse::<f64>(),
+            ) {
+                is_igm_format = true;
+                if dg_inter.is_finite()
+                    && sign_rho.is_finite()
+                    && sign_rho.abs() <= 0.08
+                    && dg_inter > 1e-6
+                {
+                    pts.push(NciPoint {
+                        x: 0.0,
+                        y: 0.0,
+                        z: 0.0,
+                        sign_lambda2_rho: sign_rho,
+                        rdg: dg_inter,
+                        dg_intra: Some(dg_intra),
+                        dg_total: Some(dg_total),
                     });
                 }
             }
@@ -1167,24 +1199,45 @@ pub fn parse_nci_points(content: &str, max_points: usize) -> Vec<NciPoint> {
     }
 
     if pts.len() > max_points && max_points > 0 {
-        // Keep low-RDG spikes preferentially + uniform sample
-        pts.sort_by(|a, b| {
-            a.rdg
-                .partial_cmp(&b.rdg)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        let low_count = (max_points * 7) / 10;
-        let mut sampled = Vec::with_capacity(max_points);
-        sampled.extend_from_slice(&pts[..low_count.min(pts.len())]);
-        let rest = &pts[low_count.min(pts.len())..];
-        let remaining = max_points.saturating_sub(sampled.len());
-        if !rest.is_empty() && remaining > 0 {
-            let step = (rest.len() / remaining).max(1);
-            for p in rest.iter().step_by(step).take(remaining) {
-                sampled.push(p.clone());
+        if is_igm_format {
+            // For IGM/IGMH, prioritize strong intermolecular interaction spikes
+            pts.sort_by(|a, b| {
+                b.rdg
+                    .partial_cmp(&a.rdg)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            let top_count = (max_points * 75) / 100;
+            let mut sampled = Vec::with_capacity(max_points);
+            sampled.extend_from_slice(&pts[..top_count.min(pts.len())]);
+            let rest = &pts[top_count.min(pts.len())..];
+            let remaining = max_points.saturating_sub(sampled.len());
+            if !rest.is_empty() && remaining > 0 {
+                let step = (rest.len() / remaining).max(1);
+                for p in rest.iter().step_by(step).take(remaining) {
+                    sampled.push(p.clone());
+                }
             }
+            return sampled;
+        } else {
+            // For NCI/RDG, keep low-RDG spikes preferentially
+            pts.sort_by(|a, b| {
+                a.rdg
+                    .partial_cmp(&b.rdg)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            let low_count = (max_points * 7) / 10;
+            let mut sampled = Vec::with_capacity(max_points);
+            sampled.extend_from_slice(&pts[..low_count.min(pts.len())]);
+            let rest = &pts[low_count.min(pts.len())..];
+            let remaining = max_points.saturating_sub(sampled.len());
+            if !rest.is_empty() && remaining > 0 {
+                let step = (rest.len() / remaining).max(1);
+                for p in rest.iter().step_by(step).take(remaining) {
+                    sampled.push(p.clone());
+                }
+            }
+            return sampled;
         }
-        return sampled;
     }
     pts
 }
@@ -1521,6 +1574,107 @@ pub fn parse_thermochemistry(output: &str) -> ThermochemistryInfo {
         }
     }
     info
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AtomDeviation {
+    pub atom_index: usize,
+    pub element: String,
+    pub deviation_angstrom: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PlanarityResult {
+    pub mpp_angstrom: Option<f64>,
+    pub sdp_angstrom: Option<f64>,
+    pub max_positive_angstrom: Option<f64>,
+    pub max_negative_angstrom: Option<f64>,
+    pub atom_deviations: Vec<AtomDeviation>,
+}
+
+pub fn parse_mpp_planarity(stdout: &str) -> PlanarityResult {
+    let mut res = PlanarityResult::default();
+    let re_mpp = Regex::new(r"Molecular planarity parameter \(MPP\) is\s+([-+\d.]+)").unwrap();
+    let re_sdp = Regex::new(r"Span of deviation from plane \(SDP\) is\s+([-+\d.]+)").unwrap();
+    let re_pos = Regex::new(r"Maximal positive deviation.*?:\s+([-+\d.]+)").unwrap();
+    let re_neg = Regex::new(r"Maximal negative deviation.*?:\s+([-+\d.]+)").unwrap();
+    let re_atom = Regex::new(
+        r"Deviation of atom\s+(\d+)\(\s*([A-Za-z]+)\s*\)\s+to the plane:\s+([-+\d.]+)",
+    )
+    .unwrap();
+
+    if let Some(c) = re_mpp.captures(stdout) {
+        res.mpp_angstrom = c[1].parse().ok();
+    }
+    if let Some(c) = re_sdp.captures(stdout) {
+        res.sdp_angstrom = c[1].parse().ok();
+    }
+    if let Some(c) = re_pos.captures(stdout) {
+        res.max_positive_angstrom = c[1].parse().ok();
+    }
+    if let Some(c) = re_neg.captures(stdout) {
+        res.max_negative_angstrom = c[1].parse().ok();
+    }
+    for cap in re_atom.captures_iter(stdout) {
+        if let (Ok(idx), Ok(dev)) = (cap[1].parse::<usize>(), cap[3].parse::<f64>()) {
+            res.atom_deviations.push(AtomDeviation {
+                atom_index: idx,
+                element: cap[2].trim().to_string(),
+                deviation_angstrom: dev,
+            });
+        }
+    }
+    res
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EspSurfaceResult {
+    pub volume_angstrom3: Option<f64>,
+    pub density_g_cm3: Option<f64>,
+    pub vs_min_kcal: Option<f64>,
+    pub vs_max_kcal: Option<f64>,
+    pub overall_area_angstrom2: Option<f64>,
+    pub positive_area_angstrom2: Option<f64>,
+    pub negative_area_angstrom2: Option<f64>,
+    pub sigma2_tot_kcal2: Option<f64>,
+    pub sigma2_pos_kcal2: Option<f64>,
+    pub sigma2_neg_kcal2: Option<f64>,
+    pub balance_nu: Option<f64>,
+    pub internal_charge_sep_pi_kcal: Option<f64>,
+    pub mpi_ev: Option<f64>,
+    pub mpi_kcal: Option<f64>,
+    pub nonpolar_area_pct: Option<f64>,
+    pub polar_area_pct: Option<f64>,
+}
+
+pub fn parse_esp_surface(stdout: &str) -> EspSurfaceResult {
+    let mut res = EspSurfaceResult::default();
+    let cap_num = |pat: &str| -> Option<f64> {
+        Regex::new(pat)
+            .ok()?
+            .captures(stdout)?
+            .get(1)?
+            .as_str()
+            .parse::<f64>()
+            .ok()
+    };
+    res.volume_angstrom3 = cap_num(r"Volume:\s+[-+\d.]+\s+Bohr\^3\s+\(\s*([-+\d.]+)\s+Angstrom\^3\)");
+    res.density_g_cm3 = cap_num(r"Estimated density according to mass and volume.*?:\s+([-+\d.]+)");
+    res.vs_min_kcal = cap_num(r"Minimal value:\s+([-+\d.]+)\s+kcal/mol");
+    res.vs_max_kcal = cap_num(r"Maximal value:\s+([-+\d.]+)\s+kcal/mol");
+    res.overall_area_angstrom2 = cap_num(r"Overall surface area:\s+[-+\d.]+\s+Bohr\^2\s+\(\s*([-+\d.]+)\s+Angstrom\^2\)");
+    res.positive_area_angstrom2 = cap_num(r"Positive surface area:\s+[-+\d.]+\s+Bohr\^2\s+\(\s*([-+\d.]+)\s+Angstrom\^2\)");
+    res.negative_area_angstrom2 = cap_num(r"Negative surface area:\s+[-+\d.]+\s+Bohr\^2\s+\(\s*([-+\d.]+)\s+Angstrom\^2\)");
+    res.sigma2_tot_kcal2 = cap_num(r"Overall variance \(sigma\^2_tot\):\s+[-+\d.]+\s+a\.u\.\^2\s+\(\s*([-+\d.]+)\s+\(kcal/mol\)\^2\)");
+    res.sigma2_pos_kcal2 = cap_num(r"Positive variance:\s+[-+\d.]+\s+a\.u\.\^2\s+\(\s*([-+\d.]+)\s+\(kcal/mol\)\^2\)");
+    res.sigma2_neg_kcal2 = cap_num(r"Negative variance:\s+[-+\d.]+\s+a\.u\.\^2\s+\(\s*([-+\d.]+)\s+\(kcal/mol\)\^2\)");
+    res.balance_nu = cap_num(r"Balance of charges \(nu\):\s+([-+\d.]+)");
+    res.internal_charge_sep_pi_kcal = cap_num(r"Internal charge separation \(Pi\):\s+[-+\d.]+\s+a\.u\.\s+\(\s*([-+\d.]+)\s+kcal/mol\)");
+    res.mpi_ev = cap_num(r"Molecular polarity index \(MPI\):\s+([-+\d.]+)\s+eV");
+    res.mpi_kcal = cap_num(r"Molecular polarity index \(MPI\):\s+[-+\d.]+\s+eV\s+\(\s*([-+\d.]+)\s+kcal/mol\)");
+    res.nonpolar_area_pct = cap_num(r"Nonpolar surface area.*?Angstrom\^2\s+\(\s*([-+\d.]+)\s*%\)");
+    res.polar_area_pct = cap_num(r"Polar surface area.*?Angstrom\^2\s+\(\s*([-+\d.]+)\s*%\)");
+    res
 }
 
 #[cfg(test)]
