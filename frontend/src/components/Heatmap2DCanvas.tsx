@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Camera, Download, Maximize2, Minimize2 } from 'lucide-react';
+import { Tooltip } from './Tooltip';
 import type { Slice2DData } from '../types/quantum';
 
 export type ColormapName = 'viridis' | 'plasma' | 'inferno' | 'coolwarm' | 'rdbu';
@@ -78,6 +80,27 @@ export const Heatmap2DCanvas: React.FC<Heatmap2DCanvasProps> = ({
     v: number;
     value: number;
   } | null>(null);
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isMaximized) {
+        setIsMaximized(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isMaximized]);
+
+  const exportPng = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const url = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `wavecraft_2d_slice_${colormap}.png`;
+    a.click();
+  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -247,7 +270,7 @@ export const Heatmap2DCanvas: React.FC<Heatmap2DCanvasProps> = ({
     ctx.fillText(vmax.toExponential(1), cbX + cbW + 4, padT + 9);
     ctx.fillText(((vmax + vmin) * 0.5).toExponential(1), cbX + cbW + 4, padT + plotH / 2 + 3);
     ctx.fillText(vmin.toExponential(1), cbX + cbW + 4, padT + plotH);
-  }, [slice, colormap, showAtoms, showContours]);
+  }, [slice, colormap, showAtoms, showContours, isMaximized]);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -277,25 +300,72 @@ export const Heatmap2DCanvas: React.FC<Heatmap2DCanvasProps> = ({
   };
 
   return (
-    <div className="relative w-full">
-      <canvas
-        ref={canvasRef}
-        width={680}
-        height={460}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={() => setHoverInfo(null)}
-        className="w-full h-auto rounded-xl border border-slate-800 bg-[#090e17]"
-      />
-      {hoverInfo && (
-        <div className="mt-2 px-3 py-1.5 rounded-lg bg-slate-900/90 border border-slate-700/80 text-xs font-mono text-slate-200 flex items-center justify-between">
-          <span>
-            坐标: ({hoverInfo.u.toFixed(3)}, {hoverInfo.v.toFixed(3)}) Å
-          </span>
-          <span className="text-sky-300 font-semibold">
-            f(r) = {hoverInfo.value.toExponential(4)} a.u.
-          </span>
+    <div
+      className={
+        isMaximized
+          ? 'fixed inset-0 z-50 bg-[#070b12] p-6 flex flex-col items-center justify-center backdrop-blur-2xl'
+          : 'relative w-full space-y-2'
+      }
+    >
+      <div className="w-full flex items-center justify-between gap-2 px-1">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-slate-200">2D 实空间切面热力图</span>
+          {slice && (
+            <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400">
+              {slice.width} × {slice.height} 网格 · 色标: {colormap}
+            </span>
+          )}
         </div>
-      )}
+
+        <div className="flex items-center gap-1.5">
+          <Tooltip content="导出当前 2D 实空间切面为高分辨率 PNG 图像" title="导出图像" shortcut="[PNG]">
+            <button
+              onClick={exportPng}
+              className="p-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-sky-300 transition cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
+
+          <Tooltip
+            content={isMaximized ? '退出全屏模式' : '全屏沉浸高分辨率查看 2D 切面图'}
+            title="视口模式"
+            shortcut="[F]"
+          >
+            <button
+              onClick={() => setIsMaximized((v) => !v)}
+              className={`p-1 rounded-lg border transition cursor-pointer ${
+                isMaximized
+                  ? 'bg-amber-500/20 border-amber-400/40 text-amber-200'
+                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-sky-300'
+              }`}
+            >
+              {isMaximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </button>
+          </Tooltip>
+        </div>
+      </div>
+
+      <div className="relative w-full flex flex-col items-center justify-center">
+        <canvas
+          ref={canvasRef}
+          width={isMaximized ? 960 : 680}
+          height={isMaximized ? 620 : 460}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={() => setHoverInfo(null)}
+          className="w-full h-auto rounded-xl border border-slate-800 bg-[#090e17]"
+        />
+        {hoverInfo && (
+          <div className="mt-2 w-full px-3 py-1.5 rounded-lg bg-slate-900/90 border border-slate-700/80 text-xs font-mono text-slate-200 flex items-center justify-between">
+            <span>
+              坐标: ({hoverInfo.u.toFixed(3)}, {hoverInfo.v.toFixed(3)}) Å
+            </span>
+            <span className="text-sky-300 font-semibold">
+              f(r) = {hoverInfo.value.toExponential(4)} a.u.
+            </span>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

@@ -10,6 +10,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import type { ExampleFileInfo, HealthInfo, MoleculeInspection } from '../types/quantum';
+import { Tooltip } from './Tooltip';
 
 interface TopBarProps {
   health: HealthInfo | null;
@@ -143,37 +144,43 @@ export const TopBar: React.FC<TopBarProps> = ({
         </button>
 
         {/* Ctrl+K Command Palette Trigger */}
-        <button
-          onClick={onOpenPalette}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs text-slate-300 bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 transition cursor-pointer"
-          title="全局命令调色板 (Ctrl+K)"
-        >
-          <Search className="w-3.5 h-3.5 text-slate-400" />
-          <span className="hidden sm:inline">命令检索</span>
-          <kbd className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 font-mono">
-            Ctrl+K
-          </kbd>
-        </button>
+        <Tooltip content="快速检索 Multiwfn 全部主菜单与子功能模块" title="全局命令调色板" shortcut="Ctrl+K" position="bottom">
+          <button
+            onClick={onOpenPalette}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs text-slate-300 bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 transition cursor-pointer"
+          >
+            <Search className="w-3.5 h-3.5 text-slate-400" />
+            <span className="hidden sm:inline">命令检索</span>
+            <kbd className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 font-mono">
+              Ctrl+K
+            </kbd>
+          </button>
+        </Tooltip>
 
         {/* Engine Status Pill */}
-        <div
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs border ${
-            health?.multiwfn_found
-              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-              : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-          }`}
-          title={health?.multiwfn_path || '未检测到 Multiwfn.exe'}
+        <Tooltip
+          content={health?.multiwfn_path ? `内核路径: ${health.multiwfn_path}` : '未检测到 Multiwfn.exe，请在配置中指定路径'}
+          title="计算内核状态"
+          position="bottom"
         >
-          {health?.multiwfn_found ? (
-            <CheckCircle2 className="w-3.5 h-3.5" />
-          ) : (
-            <AlertTriangle className="w-3.5 h-3.5" />
-          )}
-          <span className="hidden lg:inline font-medium">
-            {loading ? '计算中...' : health?.multiwfn_found ? 'Multiwfn 3.8 就绪' : '未配置内核'}
-          </span>
-          <Cpu className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-sky-400' : ''}`} />
-        </div>
+          <div
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs border ${
+              health?.multiwfn_found
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+            }`}
+          >
+            {health?.multiwfn_found ? (
+              <CheckCircle2 className="w-3.5 h-3.5" />
+            ) : (
+              <AlertTriangle className="w-3.5 h-3.5" />
+            )}
+            <span className="hidden lg:inline font-medium">
+              {loading ? '计算中...' : health?.multiwfn_found ? 'Multiwfn 3.8 就绪' : '未配置内核'}
+            </span>
+            <Cpu className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-sky-400' : ''}`} />
+          </div>
+        </Tooltip>
       </div>
     </header>
   );

@@ -24,6 +24,7 @@ import type {
   DualIsosurfaceResult,
   IsosurfaceMesh,
 } from '../types/quantum';
+import { Tooltip } from './Tooltip';
 
 interface Molecule3DCanvasProps {
   atoms: Atom3D[];
@@ -130,6 +131,20 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
   const [labelOverlays, setLabelOverlays] = useState<
     { index: number; text: string; x: number; y: number; visible: boolean }[]
   >([]);
+
+  // Keyboard shortcut listener: F to toggle Fullscreen, Escape to exit
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === 'f' || e.key === 'F') {
+        setIsMaximized((v) => !v);
+      } else if (e.key === 'Escape' && isMaximized) {
+        setIsMaximized(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isMaximized]);
 
   const startDragHeight = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -737,173 +752,202 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
         <div className="flex items-center gap-1.5 flex-wrap">
           {/* Quick Camera Angles (Side view is critical for pi-pi dimer stacking) */}
           <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-[11px]">
-            <button
-              onClick={() => setCameraPreset('side')}
-              className="px-2 py-0.5 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition cursor-pointer"
-              title="90° 侧视 (垂直于二聚体堆积平面，观察层间距与夹心层)"
-            >
-              侧视
-            </button>
-            <button
-              onClick={() => setCameraPreset('top')}
-              className="px-2 py-0.5 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition cursor-pointer"
-              title="顶视 (从上方俯瞰分子骨架)"
-            >
-              顶视
-            </button>
-            <button
-              onClick={() => setCameraPreset('fit')}
-              className="px-2 py-0.5 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition cursor-pointer"
-              title="轴测视角复位"
-            >
-              复位
-            </button>
+            <Tooltip content="垂直于二聚体堆积平面，观察层间距与夹心层" title="90° 侧视角">
+              <button
+                onClick={() => setCameraPreset('side')}
+                className="px-2 py-0.5 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition cursor-pointer"
+              >
+                侧视
+              </button>
+            </Tooltip>
+            <Tooltip content="从上方俯瞰分子平面骨架" title="顶视图">
+              <button
+                onClick={() => setCameraPreset('top')}
+                className="px-2 py-0.5 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition cursor-pointer"
+              >
+                顶视
+              </button>
+            </Tooltip>
+            <Tooltip content="自适应重置三维视口居中与轴测投影" title="视口复位">
+              <button
+                onClick={() => setCameraPreset('fit')}
+                className="px-2 py-0.5 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition cursor-pointer"
+              >
+                复位
+              </button>
+            </Tooltip>
           </div>
 
           {(['ball-stick', 'spacefill', 'wireframe'] as RenderStyle[]).map((s) => (
-            <button
+            <Tooltip
               key={s}
-              onClick={() => setStyle(s)}
-              className={`px-2 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer ${
-                style === s
-                  ? 'bg-sky-500/20 text-sky-300 border border-sky-400/40'
-                  : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200'
-              }`}
+              content={`切换为${s === 'ball-stick' ? '球棍模型 (Ball-Stick)' : s === 'spacefill' ? '范德华空间填充模型 (CPK)' : '纯线框模型 (Wireframe)'}`}
             >
-              {s === 'ball-stick' ? '球棍' : s === 'spacefill' ? '空间填充' : '线框'}
-            </button>
+              <button
+                onClick={() => setStyle(s)}
+                className={`px-2 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer ${
+                  style === s
+                    ? 'bg-sky-500/20 text-sky-300 border border-sky-400/40'
+                    : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200'
+                }`}
+              >
+                {s === 'ball-stick' ? '球棍' : s === 'spacefill' ? '空间填充' : '线框'}
+              </button>
+            </Tooltip>
           ))}
 
           {charges && charges.length > 0 && (
-            <button
-              onClick={() => setColorByCharge((v) => !v)}
-              className={`px-2 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer ${
-                colorByCharge
-                  ? 'bg-rose-500/20 text-rose-200 border border-rose-400/40'
-                  : 'bg-slate-900 text-slate-400 border border-slate-800'
-              }`}
-            >
-              电荷着色
-            </button>
+            <Tooltip content="按原子电荷量为原子渲染色阶 (负电荷暖红，正电荷冷蓝)" title="原子电荷着色">
+              <button
+                onClick={() => setColorByCharge((v) => !v)}
+                className={`px-2 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer ${
+                  colorByCharge
+                    ? 'bg-rose-500/20 text-rose-200 border border-rose-400/40'
+                    : 'bg-slate-900 text-slate-400 border border-slate-800'
+                }`}
+              >
+                电荷着色
+              </button>
+            </Tooltip>
           )}
 
           {isosurface && (
             <>
-              <button
-                onClick={() => setShowIso((v) => !v)}
-                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] transition cursor-pointer ${
-                  showIso
-                    ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-400/40'
-                    : 'bg-slate-900 text-slate-400 border border-slate-800'
-                }`}
-              >
-                {showIso ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                <span>等值面</span>
-              </button>
-              <button
-                onClick={() => setIsoWireframe((v) => !v)}
-                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] transition cursor-pointer ${
-                  isoWireframe
-                    ? 'bg-violet-500/20 text-violet-200 border border-violet-400/40'
-                    : 'bg-slate-900 text-slate-400 border border-slate-800'
-                }`}
-              >
-                <Layers className="w-3 h-3" />
-                <span>网格</span>
-              </button>
+              <Tooltip content="显示或隐藏 3D 空间等值面网格" title="等值面可见性">
+                <button
+                  onClick={() => setShowIso((v) => !v)}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] transition cursor-pointer ${
+                    showIso
+                      ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-400/40'
+                      : 'bg-slate-900 text-slate-400 border border-slate-800'
+                  }`}
+                >
+                  {showIso ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                  <span>等值面</span>
+                </button>
+              </Tooltip>
+
+              <Tooltip content="以纯三角网格模式透视内部空间结构" title="等值面线框">
+                <button
+                  onClick={() => setIsoWireframe((v) => !v)}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] transition cursor-pointer ${
+                    isoWireframe
+                      ? 'bg-violet-500/20 text-violet-200 border border-violet-400/40'
+                      : 'bg-slate-900 text-slate-400 border border-slate-800'
+                  }`}
+                >
+                  <Layers className="w-3 h-3" />
+                  <span>网格</span>
+                </button>
+              </Tooltip>
             </>
           )}
 
-          <button
-            onClick={() => setShowLabels((v) => !v)}
-            className={`p-1.5 rounded-lg border transition cursor-pointer ${
-              showLabels
-                ? 'bg-sky-500/15 border-sky-400/35 text-sky-300'
-                : 'bg-slate-900 border-slate-800 text-slate-400'
-            }`}
-            title="切换原子标签"
-          >
-            <Tag className="w-3.5 h-3.5" />
-          </button>
+          <Tooltip content="在 3D 画布中显示原子元素与序号标签" title="原子标签">
+            <button
+              onClick={() => setShowLabels((v) => !v)}
+              className={`p-1.5 rounded-lg border transition cursor-pointer ${
+                showLabels
+                  ? 'bg-sky-500/15 border-sky-400/35 text-sky-300'
+                  : 'bg-slate-900 border-slate-800 text-slate-400'
+              }`}
+            >
+              <Tag className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
 
-          <button
-            onClick={() => setAutoRotate((v) => !v)}
-            className={`p-1.5 rounded-lg border transition cursor-pointer ${
-              autoRotate
-                ? 'bg-emerald-500/15 border-emerald-400/35 text-emerald-300'
-                : 'bg-slate-900 border-slate-800 text-slate-400'
-            }`}
-            title="自动旋转"
-          >
-            <RotateCw className={`w-3.5 h-3.5 ${autoRotate ? 'animate-spin' : ''}`} />
-          </button>
+          <Tooltip content="围绕分子质心轴平滑自动旋转" title="自动旋转">
+            <button
+              onClick={() => setAutoRotate((v) => !v)}
+              className={`p-1.5 rounded-lg border transition cursor-pointer ${
+                autoRotate
+                  ? 'bg-emerald-500/15 border-emerald-400/35 text-emerald-300'
+                  : 'bg-slate-900 border-slate-800 text-slate-400'
+              }`}
+            >
+              <RotateCw className={`w-3.5 h-3.5 ${autoRotate ? 'animate-spin' : ''}`} />
+            </button>
+          </Tooltip>
 
-          <button
-            onClick={() => setControlMode((m) => (m === 'trackball' ? 'orbit' : 'trackball'))}
-            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer ${
-              controlMode === 'trackball'
-                ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-400/40 shadow-sm'
-                : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200'
-            }`}
-            title="切换旋转模式：轨迹球翻转(支持全向360°无死角上下连续翻转，彻底解决触墙死角) / 经典轨道"
+          <Tooltip
+            content="轨迹球模式支持 360° 无死角任意角度立体自由翻转（彻底解除两极触墙死角）；环绕轨道为传统水平锁定旋转"
+            title="空间旋转模式"
           >
-            <Compass className="w-3.5 h-3.5" />
-            <span>{controlMode === 'trackball' ? '轨迹球翻转' : '环绕轨道'}</span>
-          </button>
+            <button
+              onClick={() => setControlMode((m) => (m === 'trackball' ? 'orbit' : 'trackball'))}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer ${
+                controlMode === 'trackball'
+                  ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-400/40 shadow-sm'
+                  : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200'
+              }`}
+            >
+              <Compass className="w-3.5 h-3.5" />
+              <span>{controlMode === 'trackball' ? '轨迹球翻转' : '环绕轨道'}</span>
+            </button>
+          </Tooltip>
 
           {/* Quick height presets */}
           {!isMaximized && resizable && (
             <div className="hidden sm:flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-[10px] font-mono">
-              <button
-                onClick={() => setViewportHeight(380)}
-                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
-                  viewportHeight <= 400 ? 'bg-sky-500/20 text-sky-300' : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="紧凑高度 380px"
-              >
-                紧凑
-              </button>
-              <button
-                onClick={() => setViewportHeight(540)}
-                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
-                  viewportHeight > 400 && viewportHeight <= 600 ? 'bg-sky-500/20 text-sky-300' : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="标准高度 540px"
-              >
-                标准
-              </button>
-              <button
-                onClick={() => setViewportHeight(760)}
-                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
-                  viewportHeight > 600 ? 'bg-sky-500/20 text-sky-300' : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="大屏巨幕 760px"
-              >
-                巨幕
-              </button>
+              <Tooltip content="视口高度 380px，紧凑型展示" title="紧凑尺寸">
+                <button
+                  onClick={() => setViewportHeight(380)}
+                  className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                    viewportHeight <= 400 ? 'bg-sky-500/20 text-sky-300 font-bold' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  紧凑
+                </button>
+              </Tooltip>
+              <Tooltip content="视口高度 540px，兼顾结构与参数" title="标准尺寸">
+                <button
+                  onClick={() => setViewportHeight(540)}
+                  className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                    viewportHeight > 400 && viewportHeight <= 600 ? 'bg-sky-500/20 text-sky-300 font-bold' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  标准
+                </button>
+              </Tooltip>
+              <Tooltip content="视口高度 760px，超大视界精细剖析" title="大屏巨幕">
+                <button
+                  onClick={() => setViewportHeight(760)}
+                  className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                    viewportHeight > 600 ? 'bg-sky-500/20 text-sky-300 font-bold' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  巨幕
+                </button>
+              </Tooltip>
             </div>
           )}
 
           {/* Fullscreen / Maximize */}
-          <button
-            onClick={() => setIsMaximized((v) => !v)}
-            className={`p-1.5 rounded-lg border transition cursor-pointer ${
-              isMaximized
-                ? 'bg-amber-500/20 border-amber-400/40 text-amber-200'
-                : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-sky-300'
-            }`}
-            title={isMaximized ? '退出全屏' : '全屏沉浸视口'}
+          <Tooltip
+            content={isMaximized ? "退出全屏视口模式" : "铺满全屏沉浸式观察分子 3D 几何构型与等值面"}
+            title={isMaximized ? "退出全屏" : "全屏放大"}
+            shortcut="F / Esc"
           >
-            {isMaximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-          </button>
+            <button
+              onClick={() => setIsMaximized((v) => !v)}
+              className={`p-1.5 rounded-lg border transition cursor-pointer ${
+                isMaximized
+                  ? 'bg-amber-500/20 border-amber-400/40 text-amber-200'
+                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-sky-300'
+              }`}
+            >
+              {isMaximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </button>
+          </Tooltip>
 
-          <button
-            onClick={exportSnapshot}
-            className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-sky-300 transition cursor-pointer"
-            title="保存 3D 高清 PNG"
-          >
-            <Camera className="w-3.5 h-3.5" />
-          </button>
+          <Tooltip content="导出当前 3D 分子高保真透明 PNG 图像" title="高清截图">
+            <button
+              onClick={exportSnapshot}
+              className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-sky-300 transition cursor-pointer"
+            >
+              <Camera className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
         </div>
       </div>
 

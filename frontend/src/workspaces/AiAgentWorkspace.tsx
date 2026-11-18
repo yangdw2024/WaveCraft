@@ -28,6 +28,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { api } from '../api/client';
+import { Tooltip } from '../components/Tooltip';
 import type { MoleculeInspection } from '../types/quantum';
 
 interface AiAgentWorkspaceProps {
@@ -565,25 +566,27 @@ export const AiAgentWorkspace: React.FC<AiAgentWorkspaceProps> = ({ inspection }
 
           {/* Multimodal Image Actions */}
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleCaptureCanvas}
-              className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 hover:border-sky-500/50 text-[11px] text-slate-300 hover:text-sky-300 flex items-center gap-1.5 transition cursor-pointer"
-              title="截取当前 3D 分子视口或 2D 散点图并传入视觉大模型"
-            >
-              <Camera className="w-3.5 h-3.5 text-sky-400" />
-              <span>捕获当前 3D 分子视口</span>
-            </button>
+            <Tooltip content="一键截取当前 3D 分子/等值面视口并作为多模态视觉输入发送给 AI" title="视觉识图">
+              <button
+                type="button"
+                onClick={handleCaptureCanvas}
+                className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 hover:border-sky-500/50 text-[11px] text-slate-300 hover:text-sky-300 flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <Camera className="w-3.5 h-3.5 text-sky-400" />
+                <span>捕获当前 3D 分子视口</span>
+              </button>
+            </Tooltip>
 
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 hover:border-sky-500/50 text-[11px] text-slate-300 hover:text-sky-300 flex items-center gap-1.5 transition cursor-pointer"
-              title="上传外部文献图表、谱图或分子结构图"
-            >
-              <Upload className="w-3.5 h-3.5 text-indigo-400" />
-              <span>上传文献/谱图图片</span>
-            </button>
+            <Tooltip content="上传外部文献中的 NCI/IGMH 散点图、光谱图或分子结构图供 AI 对照分析" title="文献图像上传">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 hover:border-sky-500/50 text-[11px] text-slate-300 hover:text-sky-300 flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <Upload className="w-3.5 h-3.5 text-indigo-400" />
+                <span>上传文献/谱图图片</span>
+              </button>
+            </Tooltip>
 
             <input
               ref={fileInputRef}

@@ -17,6 +17,7 @@ import {
 } from '../components/ScientificChart';
 import { Molecule3DCanvas } from '../components/Molecule3DCanvas';
 import { ExportToolbar } from '../components/ExportToolbar';
+import { Tooltip } from '../components/Tooltip';
 
 export const DosWorkspace: React.FC<{
   inspection: MoleculeInspection | null;
@@ -438,21 +439,26 @@ export const WeakInteractionWorkspace: React.FC<{
           </select>
 
           <div className="flex items-center gap-1">
-            <input
-              value={fragmentAtoms}
-              onChange={(e) => setFragmentAtoms(e.target.value)}
-              placeholder="片段1 (如 1-108)"
-              title="输入片段1原子范围（如 1-108），自动与互补集形成双片段"
-              className="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-mono text-slate-200 w-36"
-            />
+            <Tooltip content="输入片段1原子序号范围（如 1-108），软件将自动与互补集形成双片段进行分子间相互作用分析" title="片段划分">
+              <input
+                value={fragmentAtoms}
+                onChange={(e) => setFragmentAtoms(e.target.value)}
+                placeholder="片段1 (如 1-108)"
+                className="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-mono text-slate-200 w-36"
+              />
+            </Tooltip>
             {dimerSuggestion && !fragmentAtoms && (
-              <button
-                onClick={() => setFragmentAtoms(dimerSuggestion)}
-                className="px-2 py-1 rounded-lg bg-sky-500/15 border border-sky-400/30 text-[10px] text-sky-300 hover:bg-sky-500/25 transition cursor-pointer font-mono"
-                title={`二聚体自动等分: 片段1设定为 1-${Math.floor((inspection?.atoms.length || 0) / 2)}`}
+              <Tooltip
+                content={`智能检测到二聚体体系 (${inspection?.atoms.length} 原子)，点击一键自动填入 1-${Math.floor((inspection?.atoms.length || 0) / 2)}`}
+                title="二聚体自动等分"
               >
-                二聚体填入
-              </button>
+                <button
+                  onClick={() => setFragmentAtoms(dimerSuggestion)}
+                  className="px-2 py-1 rounded-lg bg-sky-500/15 border border-sky-400/30 text-[10px] text-sky-300 hover:bg-sky-500/25 transition cursor-pointer font-mono"
+                >
+                  二聚体填入
+                </button>
+              </Tooltip>
             )}
           </div>
 
@@ -473,52 +479,59 @@ export const WeakInteractionWorkspace: React.FC<{
           <div className="hidden sm:flex items-center gap-1 text-[10px] font-mono text-slate-400">
             {isIgm ? (
               <>
-                <button
-                  onClick={() => setIsovalue(0.003)}
-                  className={`px-1.5 py-0.5 rounded border transition cursor-pointer ${
-                    isovalue === 0.003 ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300' : 'bg-slate-900 border-slate-800 hover:text-slate-200'
-                  }`}
-                  title="0.003 广延包络层"
-                >
-                  0.003
-                </button>
-                <button
-                  onClick={() => setIsovalue(0.005)}
-                  className={`px-1.5 py-0.5 rounded border transition cursor-pointer ${
-                    isovalue === 0.005 ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300' : 'bg-slate-900 border-slate-800 hover:text-slate-200'
-                  }`}
-                  title="0.005 经典推荐值"
-                >
-                  0.005★
-                </button>
-                <button
-                  onClick={() => setIsovalue(0.008)}
-                  className={`px-1.5 py-0.5 rounded border transition cursor-pointer ${
-                    isovalue === 0.008 ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300' : 'bg-slate-900 border-slate-800 hover:text-slate-200'
-                  }`}
-                  title="0.008 致密核心层"
-                >
-                  0.008
-                </button>
+                <Tooltip content="0.003 a.u. 广延包络层，展现更外围的微弱作用" title="等值面预设">
+                  <button
+                    onClick={() => setIsovalue(0.003)}
+                    className={`px-1.5 py-0.5 rounded border transition cursor-pointer ${
+                      isovalue === 0.003 ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300' : 'bg-slate-900 border-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    0.003
+                  </button>
+                </Tooltip>
+                <Tooltip content="0.005 a.u. 经典黄金推荐值 (卢天老师强烈建议)" title="推荐阈值">
+                  <button
+                    onClick={() => setIsovalue(0.005)}
+                    className={`px-1.5 py-0.5 rounded border transition cursor-pointer ${
+                      isovalue === 0.005 ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300' : 'bg-slate-900 border-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    0.005★
+                  </button>
+                </Tooltip>
+                <Tooltip content="0.008 a.u. 致密核心层，突出强范德华与氢键核心区域" title="等值面预设">
+                  <button
+                    onClick={() => setIsovalue(0.008)}
+                    className={`px-1.5 py-0.5 rounded border transition cursor-pointer ${
+                      isovalue === 0.008 ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300' : 'bg-slate-900 border-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    0.008
+                  </button>
+                </Tooltip>
               </>
             ) : (
               <>
-                <button
-                  onClick={() => setIsovalue(0.3)}
-                  className={`px-1.5 py-0.5 rounded border transition cursor-pointer ${
-                    isovalue === 0.3 ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300' : 'bg-slate-900 border-slate-800 hover:text-slate-200'
-                  }`}
-                >
-                  0.3
-                </button>
-                <button
-                  onClick={() => setIsovalue(0.5)}
-                  className={`px-1.5 py-0.5 rounded border transition cursor-pointer ${
-                    isovalue === 0.5 ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300' : 'bg-slate-900 border-slate-800 hover:text-slate-200'
-                  }`}
-                >
-                  0.5★
-                </button>
+                <Tooltip content="0.30 a.u. 扩展包络面">
+                  <button
+                    onClick={() => setIsovalue(0.3)}
+                    className={`px-1.5 py-0.5 rounded border transition cursor-pointer ${
+                      isovalue === 0.3 ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300' : 'bg-slate-900 border-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    0.3
+                  </button>
+                </Tooltip>
+                <Tooltip content="0.50 a.u. NCI 经典标准推荐值" title="推荐阈值">
+                  <button
+                    onClick={() => setIsovalue(0.5)}
+                    className={`px-1.5 py-0.5 rounded border transition cursor-pointer ${
+                      isovalue === 0.5 ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300' : 'bg-slate-900 border-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    0.5★
+                  </button>
+                </Tooltip>
               </>
             )}
           </div>
@@ -536,54 +549,61 @@ export const WeakInteractionWorkspace: React.FC<{
         {/* Layout Switcher & Export */}
         <div className="flex items-center gap-2">
           <div className="flex items-center bg-slate-900 border border-slate-800 rounded-xl p-0.5 text-xs">
-            <button
-              onClick={() => setLayoutMode('side-by-side')}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg transition cursor-pointer ${
-                layoutMode === 'side-by-side'
-                  ? 'bg-sky-500/20 text-sky-300 font-semibold shadow'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-              title="并排左右双栏 (3D视口与2D散点图各占50%宽)"
-            >
-              <Columns className="w-3.5 h-3.5" />
-              <span>并排分栏</span>
-            </button>
-            <button
-              onClick={() => setLayoutMode('stacked')}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg transition cursor-pointer ${
-                layoutMode === 'stacked'
-                  ? 'bg-sky-500/20 text-sky-300 font-semibold shadow'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-              title="上下堆叠经典布局"
-            >
-              <Rows className="w-3.5 h-3.5" />
-              <span>上下堆叠</span>
-            </button>
-            <button
-              onClick={() => setLayoutMode('3d-focus')}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg transition cursor-pointer ${
-                layoutMode === '3d-focus'
-                  ? 'bg-sky-500/20 text-sky-300 font-semibold shadow'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-              title="聚焦 3D 等值面全宽视口"
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
-              <span>聚焦 3D</span>
-            </button>
-            <button
-              onClick={() => setLayoutMode('scatter-focus')}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg transition cursor-pointer ${
-                layoutMode === 'scatter-focus'
-                  ? 'bg-sky-500/20 text-sky-300 font-semibold shadow'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-              title="聚焦 2D 散点图全宽精细剖析"
-            >
-              <Activity className="w-3.5 h-3.5" />
-              <span>聚焦散点</span>
-            </button>
+            <Tooltip content="并排左右双栏 (3D分子视口与2D散点图各占50%宽，实时对照)" title="布局模式">
+              <button
+                onClick={() => setLayoutMode('side-by-side')}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                  layoutMode === 'side-by-side'
+                    ? 'bg-sky-500/20 text-sky-300 font-semibold shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Columns className="w-3.5 h-3.5" />
+                <span>并排分栏</span>
+              </button>
+            </Tooltip>
+
+            <Tooltip content="上下垂直堆叠经典布局，纵深感更强" title="布局模式">
+              <button
+                onClick={() => setLayoutMode('stacked')}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                  layoutMode === 'stacked'
+                    ? 'bg-sky-500/20 text-sky-300 font-semibold shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Rows className="w-3.5 h-3.5" />
+                <span>上下堆叠</span>
+              </button>
+            </Tooltip>
+
+            <Tooltip content="聚焦 3D 等值面全宽巨幕视口，细致观察三维相互作用区域" title="布局模式">
+              <button
+                onClick={() => setLayoutMode('3d-focus')}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                  layoutMode === '3d-focus'
+                    ? 'bg-sky-500/20 text-sky-300 font-semibold shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+                <span>聚焦 3D</span>
+              </button>
+            </Tooltip>
+
+            <Tooltip content="聚焦 2D 散点图全宽精细剖析 sign(λ₂)ρ 峰形与特征区" title="布局模式">
+              <button
+                onClick={() => setLayoutMode('scatter-focus')}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                  layoutMode === 'scatter-focus'
+                    ? 'bg-sky-500/20 text-sky-300 font-semibold shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Activity className="w-3.5 h-3.5" />
+                <span>聚焦散点</span>
+              </button>
+            </Tooltip>
           </div>
 
           <ExportToolbar

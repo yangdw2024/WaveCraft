@@ -1,5 +1,6 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { Camera, Download, Maximize2, Minimize2 } from 'lucide-react';
+import { Tooltip } from './Tooltip';
 import type {
   BondOrderEntry,
   ChargeEntry,
@@ -197,8 +198,33 @@ export const OrbitalLadderChart: React.FC<{
 
 export const DosChart: React.FC<{ curve: DosCurve }> = ({ curve }) => {
   if (!curve.points.length) return null;
-  const w = 720;
-  const h = 340;
+  const [isMaximized, setIsMaximized] = useState(false);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isMaximized) {
+        setIsMaximized(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isMaximized]);
+
+  const exportSvg = () => {
+    if (!svgRef.current) return;
+    const svgData = new XMLSerializer().serializeToString(svgRef.current);
+    const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `wavecraft_tdos_${curve.broadening}.svg`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const w = isMaximized ? 1100 : 720;
+  const h = isMaximized ? 560 : 340;
   const padL = 56;
   const padR = 24;
   const padT = 34;
@@ -223,70 +249,154 @@ export const DosChart: React.FC<{ curve: DosCurve }> = ({ curve }) => {
     `${pathOf((p) => p.occupied_dos)} L${xOf(maxE).toFixed(1)},${(padT + plotH).toFixed(1)} L${xOf(minE).toFixed(1)},${(padT + plotH).toFixed(1)} Z`;
 
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-auto rounded-xl bg-[#090e17] border border-slate-800">
-      <text x={padL} y={20} fill="#cbd5e1" fontSize="12" fontWeight="600">
-        态密度谱图 TDOS ({curve.broadening}, FWHM = {curve.fwhm_ev.toFixed(2)} eV)
-      </text>
+    <div
+      className={
+        isMaximized
+          ? 'fixed inset-0 z-50 bg-[#070b12] p-6 flex flex-col items-center justify-center backdrop-blur-2xl'
+          : 'relative rounded-2xl bg-[#090e17] border border-slate-800 p-3 space-y-2'
+      }
+    >
+      <div className="w-full flex items-center justify-between gap-2 px-1">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-slate-200">
+            态密度谱图 TDOS ({curve.broadening})
+          </span>
+          <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800/80 text-sky-300">
+            FWHM = {curve.fwhm_ev.toFixed(2)} eV
+          </span>
+          {curve.homo_energy_ev !== undefined && curve.homo_energy_ev !== null && (
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+              HOMO: {curve.homo_energy_ev.toFixed(2)} eV
+            </span>
+          )}
+          {curve.lumo_energy_ev !== undefined && curve.lumo_energy_ev !== null && (
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-300 border border-rose-500/30">
+              LUMO: {curve.lumo_energy_ev.toFixed(2)} eV
+            </span>
+          )}
+        </div>
 
-      <path d={occArea} fill="rgba(56, 189, 248, 0.16)" />
-      <path d={tdosPath} fill="none" stroke="#38bdf8" strokeWidth="2.2" />
-      <path d={pathOf((p) => p.virtual_dos)} fill="none" stroke="#a78bfa" strokeWidth="1.5" strokeDasharray="4 3" />
+        <div className="flex items-center gap-1.5">
+          <Tooltip content="导出出版级矢量 SVG 态密度谱图" title="导出图表" shortcut="[SVG]">
+            <button
+              onClick={exportSvg}
+              className="p-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-sky-300 transition cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
 
-      {curve.homo_energy_ev !== undefined && curve.homo_energy_ev !== null && (
-        <g>
-          <line
-            x1={xOf(curve.homo_energy_ev)}
-            y1={padT}
-            x2={xOf(curve.homo_energy_ev)}
-            y2={padT + plotH}
-            stroke="#22c55e"
-            strokeDasharray="5 3"
-          />
-          <text x={xOf(curve.homo_energy_ev) - 4} y={padT + 12} textAnchor="end" fill="#4ade80" fontSize="10.5" fontFamily="monospace">
-            HOMO ({curve.homo_energy_ev.toFixed(2)} eV)
+          <Tooltip
+            content={isMaximized ? "退出全屏模式" : "全屏沉浸高分辨率查看态密度谱图"}
+            title="视口模式"
+            shortcut="[F]"
+          >
+            <button
+              onClick={() => setIsMaximized((v) => !v)}
+              className={`p-1 rounded-lg border transition cursor-pointer ${
+                isMaximized
+                  ? 'bg-amber-500/20 border-amber-400/40 text-amber-200'
+                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-sky-300'
+              }`}
+            >
+              {isMaximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </button>
+          </Tooltip>
+        </div>
+      </div>
+
+      <div className="relative w-full flex items-center justify-center overflow-hidden">
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${w} ${h}`}
+          className="w-full h-auto rounded-xl select-none"
+        >
+          <path d={occArea} fill="rgba(56, 189, 248, 0.16)" />
+          <path d={tdosPath} fill="none" stroke="#38bdf8" strokeWidth="2.2" />
+          <path d={pathOf((p) => p.virtual_dos)} fill="none" stroke="#a78bfa" strokeWidth="1.5" strokeDasharray="4 3" />
+
+          {curve.homo_energy_ev !== undefined && curve.homo_energy_ev !== null && (
+            <g>
+              <line
+                x1={xOf(curve.homo_energy_ev)}
+                y1={padT}
+                x2={xOf(curve.homo_energy_ev)}
+                y2={padT + plotH}
+                stroke="#22c55e"
+                strokeDasharray="5 3"
+              />
+              <text x={xOf(curve.homo_energy_ev) - 4} y={padT + 12} textAnchor="end" fill="#4ade80" fontSize="10.5" fontFamily="monospace">
+                HOMO ({curve.homo_energy_ev.toFixed(2)} eV)
+              </text>
+            </g>
+          )}
+
+          {curve.lumo_energy_ev !== undefined && curve.lumo_energy_ev !== null && (
+            <g>
+              <line
+                x1={xOf(curve.lumo_energy_ev)}
+                y1={padT}
+                x2={xOf(curve.lumo_energy_ev)}
+                y2={padT + plotH}
+                stroke="#f43f5e"
+                strokeDasharray="5 3"
+              />
+              <text x={xOf(curve.lumo_energy_ev) + 4} y={padT + 26} textAnchor="start" fill="#fb7185" fontSize="10.5" fontFamily="monospace">
+                LUMO ({curve.lumo_energy_ev.toFixed(2)} eV)
+              </text>
+            </g>
+          )}
+
+          <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="#475569" />
+          <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke="#475569" />
+          {[0, 0.25, 0.5, 0.75, 1].map((f, i) => {
+            const ev = minE + (maxE - minE) * f;
+            return (
+              <text key={i} x={xOf(ev)} y={padT + plotH + 17} textAnchor="middle" fill="#94a3b8" fontSize="10" fontFamily="monospace">
+                {ev.toFixed(1)}
+              </text>
+            );
+          })}
+          <text x={padL + plotW / 2} y={h - 6} textAnchor="middle" fill="#cbd5e1" fontSize="11">
+            轨道能量 (eV) · 蓝色实线: 总态密度(TDOS) | 蓝色阴影: 占据态 | 紫色虚线: 虚态
           </text>
-        </g>
-      )}
-
-      {curve.lumo_energy_ev !== undefined && curve.lumo_energy_ev !== null && (
-        <g>
-          <line
-            x1={xOf(curve.lumo_energy_ev)}
-            y1={padT}
-            x2={xOf(curve.lumo_energy_ev)}
-            y2={padT + plotH}
-            stroke="#f43f5e"
-            strokeDasharray="5 3"
-          />
-          <text x={xOf(curve.lumo_energy_ev) + 4} y={padT + 26} textAnchor="start" fill="#fb7185" fontSize="10.5" fontFamily="monospace">
-            LUMO ({curve.lumo_energy_ev.toFixed(2)} eV)
-          </text>
-        </g>
-      )}
-
-      <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="#475569" />
-      <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke="#475569" />
-      {[0, 0.25, 0.5, 0.75, 1].map((f, i) => {
-        const ev = minE + (maxE - minE) * f;
-        return (
-          <text key={i} x={xOf(ev)} y={padT + plotH + 17} textAnchor="middle" fill="#94a3b8" fontSize="10" fontFamily="monospace">
-            {ev.toFixed(1)}
-          </text>
-        );
-      })}
-      <text x={padL + plotW / 2} y={h - 6} textAnchor="middle" fill="#cbd5e1" fontSize="11">
-        轨道能量 (eV)
-      </text>
-    </svg>
+        </svg>
+      </div>
+    </div>
   );
 };
 
 export const SpectrumChart: React.FC<{ curve: SpectrumCurve }> = ({ curve }) => {
   const [hovered, setHovered] = useState<number | null>(null);
+  const [isMaximized, setIsMaximized] = useState(false);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isMaximized) {
+        setIsMaximized(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isMaximized]);
+
+  const exportSvg = () => {
+    if (!svgRef.current) return;
+    const svgData = new XMLSerializer().serializeToString(svgRef.current);
+    const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `wavecraft_spectrum_${curve.spectrum_type}.svg`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   if (curve.x_values.length === 0) return null;
 
-  const w = 720;
-  const h = 340;
+  const w = isMaximized ? 1100 : 720;
+  const h = isMaximized ? 560 : 340;
   const padL = 56;
   const padR = 24;
   const padT = 34;
@@ -307,55 +417,105 @@ export const SpectrumChart: React.FC<{ curve: SpectrumCurve }> = ({ curve }) => 
   const areaPath = `${linePath} L${xOf(maxX).toFixed(1)},${(padT + plotH).toFixed(1)} L${xOf(minX).toFixed(1)},${(padT + plotH).toFixed(1)} Z`;
 
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-auto rounded-xl bg-[#090e17] border border-slate-800">
-      <text x={padL} y={20} fill="#cbd5e1" fontSize="12" fontWeight="600">
-        {curve.spectrum_type} 模拟展宽谱图 ({curve.peaks.length} 个特征峰)
-      </text>
-      <path d={areaPath} fill="rgba(168, 85, 247, 0.16)" />
-      <path d={linePath} fill="none" stroke="#c084fc" strokeWidth="2.2" />
+    <div
+      className={
+        isMaximized
+          ? 'fixed inset-0 z-50 bg-[#070b12] p-6 flex flex-col items-center justify-center backdrop-blur-2xl'
+          : 'relative rounded-2xl bg-[#090e17] border border-slate-800 p-3 space-y-2'
+      }
+    >
+      <div className="w-full flex items-center justify-between gap-2 px-1">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-slate-200">
+            {curve.spectrum_type} 模拟展宽谱图
+          </span>
+          <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800/80 text-violet-300">
+            {curve.peaks.length} 个特征跃迁/振动峰
+          </span>
+        </div>
 
-      {curve.peaks.map((p, idx) => {
-        const px = xOf(p.x_value);
-        const py = yOf(p.intensity);
-        const active = hovered === idx;
-        return (
-          <g
-            key={p.index}
-            onMouseEnter={() => setHovered(idx)}
-            onMouseLeave={() => setHovered(null)}
-            className="cursor-pointer"
+        <div className="flex items-center gap-1.5">
+          <Tooltip content="导出出版级矢量 SVG 光谱图" title="导出图表" shortcut="[SVG]">
+            <button
+              onClick={exportSvg}
+              className="p-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-sky-300 transition cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
+
+          <Tooltip
+            content={isMaximized ? "退出全屏模式" : "全屏沉浸高分辨率查看谱图与吸收峰"}
+            title="视口模式"
+            shortcut="[F]"
           >
-            <line
-              x1={px}
-              y1={padT + plotH}
-              x2={px}
-              y2={py}
-              stroke={active ? '#facc15' : 'rgba(56, 189, 248, 0.55)'}
-              strokeWidth={active ? 2.5 : 1.3}
-            />
-            {active && (
-              <text x={Math.min(w - 130, Math.max(padL + 10, px))} y={Math.max(padT + 14, py - 6)} fill="#fde047" fontSize="10.5" fontFamily="monospace">
-                {p.label}
-              </text>
-            )}
-          </g>
-        );
-      })}
+            <button
+              onClick={() => setIsMaximized((v) => !v)}
+              className={`p-1 rounded-lg border transition cursor-pointer ${
+                isMaximized
+                  ? 'bg-amber-500/20 border-amber-400/40 text-amber-200'
+                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-sky-300'
+              }`}
+            >
+              {isMaximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </button>
+          </Tooltip>
+        </div>
+      </div>
 
-      <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="#475569" />
-      <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke="#475569" />
-      {[0, 0.25, 0.5, 0.75, 1].map((f, i) => {
-        const xv = minX + (maxX - minX) * f;
-        return (
-          <text key={i} x={xOf(xv)} y={padT + plotH + 17} textAnchor="middle" fill="#94a3b8" fontSize="10" fontFamily="monospace">
-            {xv.toFixed(0)}
+      <div className="relative w-full flex items-center justify-center overflow-hidden">
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${w} ${h}`}
+          className="w-full h-auto rounded-xl select-none"
+        >
+          <path d={areaPath} fill="rgba(168, 85, 247, 0.16)" />
+          <path d={linePath} fill="none" stroke="#c084fc" strokeWidth="2.2" />
+
+          {curve.peaks.map((p, idx) => {
+            const px = xOf(p.x_value);
+            const py = yOf(p.intensity);
+            const active = hovered === idx;
+            return (
+              <g
+                key={p.index}
+                onMouseEnter={() => setHovered(idx)}
+                onMouseLeave={() => setHovered(null)}
+                className="cursor-pointer"
+              >
+                <line
+                  x1={px}
+                  y1={padT + plotH}
+                  x2={px}
+                  y2={py}
+                  stroke={active ? '#facc15' : 'rgba(56, 189, 248, 0.55)'}
+                  strokeWidth={active ? 2.5 : 1.3}
+                />
+                {active && (
+                  <text x={Math.min(w - 130, Math.max(padL + 10, px))} y={Math.max(padT + 14, py - 6)} fill="#fde047" fontSize="10.5" fontFamily="monospace">
+                    {p.label}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+
+          <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="#475569" />
+          <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke="#475569" />
+          {[0, 0.25, 0.5, 0.75, 1].map((f, i) => {
+            const xv = minX + (maxX - minX) * f;
+            return (
+              <text key={i} x={xOf(xv)} y={padT + plotH + 17} textAnchor="middle" fill="#94a3b8" fontSize="10" fontFamily="monospace">
+                {xv.toFixed(0)}
+              </text>
+            );
+          })}
+          <text x={padL + plotW / 2} y={h - 6} textAnchor="middle" fill="#cbd5e1" fontSize="11">
+            {curve.x_label}
           </text>
-        );
-      })}
-      <text x={padL + plotW / 2} y={h - 6} textAnchor="middle" fill="#cbd5e1" fontSize="11">
-        {curve.x_label}
-      </text>
-    </svg>
+        </svg>
+      </div>
+    </div>
   );
 };
 
@@ -408,6 +568,16 @@ export const NciScatterChart: React.FC<{ points: NciPoint[]; method: string }> =
   const [hoveredPoint, setHoveredPoint] = useState<NciPoint | null>(null);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isMaximized) {
+        setIsMaximized(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isMaximized]);
 
   if (points.length === 0) return null;
 
@@ -487,93 +657,108 @@ export const NciScatterChart: React.FC<{ points: NciPoint[]; method: string }> =
           {/* Y Range Selector */}
           <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-[10px] font-mono">
             <span className="text-slate-500 px-1.5">Y量程:</span>
-            <button
-              onClick={() => setCustomMaxY('auto')}
-              className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
-                customMaxY === 'auto'
-                  ? 'bg-sky-500/20 text-sky-300 font-bold'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-              title="自动自适应最优显示区间"
-            >
-              自动 ({activeMaxY.toFixed(activeMaxY < 0.1 ? 3 : 2)})
-            </button>
+            <Tooltip content="根据真实散点峰值动态设置最佳显示高度上限" title="自动量程">
+              <button
+                onClick={() => setCustomMaxY('auto')}
+                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  customMaxY === 'auto'
+                    ? 'bg-sky-500/20 text-sky-300 font-bold'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                自动 ({activeMaxY.toFixed(activeMaxY < 0.1 ? 3 : 2)})
+              </button>
+            </Tooltip>
             {isIgm ? (
               <>
-                <button
-                  onClick={() => setCustomMaxY(0.04)}
-                  className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
-                    customMaxY === 0.04
-                      ? 'bg-sky-500/20 text-sky-300 font-bold'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title="IGMH 经典标准量程 (0 ~ 0.04 a.u.)"
-                >
-                  0.04 (标准)
-                </button>
-                <button
-                  onClick={() => setCustomMaxY(0.08)}
-                  className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
-                    customMaxY === 0.08
-                      ? 'bg-sky-500/20 text-sky-300 font-bold'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  0.08
-                </button>
-                <button
-                  onClick={() => setCustomMaxY(2.0)}
-                  className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
-                    customMaxY === 2.0
-                      ? 'bg-sky-500/20 text-sky-300 font-bold'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title="全尺度 RDG 范围"
-                >
-                  2.0 (全景)
-                </button>
+                <Tooltip content="IGMH 经典标准量程 (0 ~ 0.04 a.u.)，二聚体堆积极佳" title="标准推荐">
+                  <button
+                    onClick={() => setCustomMaxY(0.04)}
+                    className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                      customMaxY === 0.04
+                        ? 'bg-sky-500/20 text-sky-300 font-bold'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    0.04 (标准)
+                  </button>
+                </Tooltip>
+                <Tooltip content="扩展量程 (0 ~ 0.08 a.u.)，适合强相互作用体系">
+                  <button
+                    onClick={() => setCustomMaxY(0.08)}
+                    className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                      customMaxY === 0.08
+                        ? 'bg-sky-500/20 text-sky-300 font-bold'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    0.08
+                  </button>
+                </Tooltip>
+                <Tooltip content="全尺度 RDG 范围 (0 ~ 2.0 a.u.)，包含高折减梯度区域" title="全景尺度">
+                  <button
+                    onClick={() => setCustomMaxY(2.0)}
+                    className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                      customMaxY === 2.0
+                        ? 'bg-sky-500/20 text-sky-300 font-bold'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    2.0 (全景)
+                  </button>
+                </Tooltip>
               </>
             ) : (
               <>
-                <button
-                  onClick={() => setCustomMaxY(1.0)}
-                  className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
-                    customMaxY === 1.0 ? 'bg-sky-500/20 text-sky-300' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  1.0
-                </button>
-                <button
-                  onClick={() => setCustomMaxY(2.0)}
-                  className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
-                    customMaxY === 2.0 ? 'bg-sky-500/20 text-sky-300' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  2.0 (标准)
-                </button>
+                <Tooltip content="低量程 0 ~ 1.0 a.u.">
+                  <button
+                    onClick={() => setCustomMaxY(1.0)}
+                    className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                      customMaxY === 1.0 ? 'bg-sky-500/20 text-sky-300' : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    1.0
+                  </button>
+                </Tooltip>
+                <Tooltip content="NCI 经典推荐量程 (0 ~ 2.0 a.u.)" title="标准量程">
+                  <button
+                    onClick={() => setCustomMaxY(2.0)}
+                    className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                      customMaxY === 2.0 ? 'bg-sky-500/20 text-sky-300' : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    2.0 (标准)
+                  </button>
+                </Tooltip>
               </>
             )}
           </div>
 
-          <button
-            onClick={exportSvg}
-            className="p-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-sky-300 transition cursor-pointer"
-            title="导出出版级矢量 SVG 图表"
-          >
-            <Download className="w-3.5 h-3.5" />
-          </button>
+          <Tooltip content="导出出版级矢量 SVG 图表 (可无损缩放至期刊级排版)" title="导出矢量图" shortcut="[SVG]">
+            <button
+              onClick={exportSvg}
+              className="p-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-sky-300 transition cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
 
-          <button
-            onClick={() => setIsMaximized((v) => !v)}
-            className={`p-1 rounded-lg border transition cursor-pointer ${
-              isMaximized
-                ? 'bg-amber-500/20 border-amber-400/40 text-amber-200'
-                : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-sky-300'
-            }`}
-            title={isMaximized ? '退出全屏' : '全屏最大化'}
+          <Tooltip
+            content={isMaximized ? "退出全屏模式" : "全屏大图沉浸精细分析"}
+            title="视口模式"
+            shortcut="[F]"
           >
-            {isMaximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-          </button>
+            <button
+              onClick={() => setIsMaximized((v) => !v)}
+              className={`p-1 rounded-lg border transition cursor-pointer ${
+                isMaximized
+                  ? 'bg-amber-500/20 border-amber-400/40 text-amber-200'
+                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-sky-300'
+              }`}
+            >
+              {isMaximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </button>
+          </Tooltip>
         </div>
       </div>
 
