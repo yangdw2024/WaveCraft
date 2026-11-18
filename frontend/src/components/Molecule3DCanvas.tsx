@@ -3,8 +3,13 @@ import * as THREE from 'three';
 import { TrackballControls } from 'three/examples/jsm/controls/TrackballControls.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
   Camera,
   Compass,
+  Crosshair,
   Eye,
   EyeOff,
   GripHorizontal,
@@ -15,6 +20,8 @@ import {
   RotateCw,
   Ruler,
   Tag,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
 import type {
   Atom3D,
@@ -26,6 +33,52 @@ import type {
   IsosurfaceMesh,
 } from '../types/quantum';
 import { Tooltip } from './Tooltip';
+
+function createAtomLabelSprite(text: string): THREE.Sprite {
+  const canvas = document.createElement('canvas');
+  const dpr = 2;
+  const font = '600 22px ui-monospace, SFMono-Regular, Menlo, monospace';
+  const ctx = canvas.getContext('2d')!;
+  ctx.font = font;
+  const metrics = ctx.measureText(text);
+  const padX = 12;
+  const w = Math.ceil(metrics.width + padX * 2);
+  const h = 34;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  ctx.scale(dpr, dpr);
+
+  ctx.fillStyle = 'rgba(2, 6, 23, 0.82)';
+  ctx.strokeStyle = 'rgba(100, 116, 139, 0.6)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(1, 1, w - 2, h - 2, 7);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.font = font;
+  ctx.fillStyle = '#e2e8f0';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, w / 2, h / 2 + 0.5);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+
+  const mat = new THREE.SpriteMaterial({
+    map: tex,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const sprite = new THREE.Sprite(mat);
+  sprite.renderOrder = 999;
+  const worldH = 0.4;
+  sprite.scale.set(worldH * (w / h), worldH, 1);
+  return sprite;
+}
 
 interface Molecule3DCanvasProps {
   atoms: Atom3D[];
@@ -133,9 +186,6 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
   const [showIso, setShowIso] = useState(true);
   const [isoWireframe, setIsoWireframe] = useState(false);
   const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
-
-  const labelDomRefs = useRef<Map<number, HTMLDivElement>>(new Map());
-  const labelItemsRef = useRef<{ index: number; x: number; y: number; z: number; text: string }[]>([]);
 
   // Keyboard shortcut listener: F to toggle Fullscreen, Escape to exit
   useEffect(() => {
@@ -304,9 +354,9 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
       }
       if (mode === 'trackball') {
         const tb = new TrackballControls(camera, renderer.domElement);
-        tb.rotateSpeed = 2.4;
-        tb.zoomSpeed = 1.2;
-        tb.panSpeed = 1.0;
+        tb.rotateSpeed = 2.2;
+        tb.zoomSpeed = 1.1;
+        tb.panSpeed = 0.28;
         tb.noZoom = false;
         tb.noPan = false;
         tb.staticMoving = false;
@@ -324,6 +374,7 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
         ob.dampingFactor = 0.08;
         ob.rotateSpeed = 0.78;
         ob.zoomSpeed = 0.95;
+        ob.panSpeed = 0.5;
         ob.enablePan = true;
         ob.screenSpacePanning = true;
         ob.mouseButtons =
@@ -364,7 +415,6 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     ro.observe(el);
 
     let rafId = 0;
-    const projVec = new THREE.Vector3();
     const animate = () => {
       rafId = requestAnimationFrame(animate);
       const ctrl = controlsRef.current;
@@ -376,32 +426,6 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
       }
       ctrl?.update();
       renderer.render(scene, camera);
-
-      // Zero-lag synchronous DOM label projection in the exact same frame
-      const items = labelItemsRef.current;
-      if (items.length > 0 && containerRef.current) {
-        const w = containerRef.current.clientWidth;
-        const h = containerRef.current.clientHeight;
-        if (w > 0 && h > 0) {
-          camera.updateMatrixWorld();
-          const center = centerOffsetRef.current;
-          for (let i = 0; i < items.length; i++) {
-            const item = items[i];
-            const dom = labelDomRefs.current.get(item.index);
-            if (!dom) continue;
-            projVec.set(item.x - center.x, item.y - center.y, item.z - center.z).project(camera);
-            const sx = (projVec.x * 0.5 + 0.5) * w;
-            const sy = (-projVec.y * 0.5 + 0.5) * h - 14;
-            const visible = projVec.z < 1 && sx >= 8 && sx <= w - 8 && sy >= 8 && sy <= h - 8;
-            if (visible) {
-              dom.style.visibility = 'visible';
-              dom.style.transform = `translate3d(${sx.toFixed(1)}px, ${sy.toFixed(1)}px, 0) translate(-50%, -50%)`;
-            } else {
-              dom.style.visibility = 'hidden';
-            }
-          }
-        }
-      }
     };
     animate();
 
@@ -428,9 +452,9 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     }
     if (controlMode === 'trackball') {
       const tb = new TrackballControls(cam, ren.domElement);
-      tb.rotateSpeed = 2.4;
-      tb.zoomSpeed = 1.2;
-      tb.panSpeed = 1.0;
+      tb.rotateSpeed = 2.2;
+      tb.zoomSpeed = 1.1;
+      tb.panSpeed = 0.28;
       tb.noZoom = false;
       tb.noPan = false;
       tb.staticMoving = false;
@@ -448,6 +472,7 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
       ob.dampingFactor = 0.08;
       ob.rotateSpeed = 0.78;
       ob.zoomSpeed = 0.95;
+      ob.panSpeed = 0.5;
       ob.enablePan = true;
       ob.screenSpacePanning = true;
       ob.mouseButtons =
@@ -471,9 +496,15 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     if (prevGroup) {
       prevGroup.traverse((obj) => {
         if ((obj as THREE.Mesh).geometry) (obj as THREE.Mesh).geometry.dispose();
-        const mat = (obj as THREE.Mesh).material;
-        if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
-        else if (mat) mat.dispose();
+        const mat = (obj as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+        const disposeMat = (m: THREE.Material) => {
+          if ((m as THREE.SpriteMaterial).map) {
+            (m as THREE.SpriteMaterial).map?.dispose();
+          }
+          m.dispose();
+        };
+        if (Array.isArray(mat)) mat.forEach(disposeMat);
+        else if (mat) disposeMat(mat);
       });
       scene.remove(prevGroup);
     }
@@ -645,6 +676,29 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
       }
     }
 
+    // Native WebGL Sprite Atom Labels (0.00ms lag, zero jitter — rendered in the exact same GPU pass)
+    if (showLabels && atoms.length > 0) {
+      const labeledAtoms = atoms.filter(
+        (a) => atoms.length <= 60 || (a.symbol !== 'H' && atoms.length <= 120)
+      );
+      for (const a of labeledAtoms) {
+        const q = chargeMap.get(a.index);
+        const text =
+          colorByCharge && q !== undefined
+            ? `${a.symbol}${a.index} (${q >= 0 ? '+' : ''}${q.toFixed(2)})`
+            : `${a.symbol}${a.index}`;
+        const sprite = createAtomLabelSprite(text);
+        const radius =
+          style === 'spacefill'
+            ? a.vdw_radius * 0.72
+            : style === 'wireframe'
+              ? 0.14
+              : Math.max(0.22, a.covalent_radius * 0.42);
+        sprite.position.set(a.x - center.x, a.y - center.y + radius + 0.24, a.z - center.z);
+        group.add(sprite);
+      }
+    }
+
     scene.add(group);
 
     // Auto-fit camera distance on atom set change
@@ -674,24 +728,46 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     isoOpacity,
     isoWireframe,
     criticalPoints,
+    showLabels,
   ]);
 
-  // Compute static label metadata only when atoms/labels/charges change;
-  // actual 2D screen positions are updated synchronously inside the WebGL animate() loop (0-frame lag).
-  const labelItems = useMemo(() => {
-    if (!showLabels || atoms.length === 0) return [];
-    return atoms
-      .filter((a) => atoms.length <= 45 || (a.symbol !== 'H' && atoms.length <= 90))
-      .map((a) => {
-        const q = chargeMap.get(a.index);
-        const text =
-          colorByCharge && q !== undefined
-            ? `${a.symbol}${a.index} (${q >= 0 ? '+' : ''}${q.toFixed(2)})`
-            : `${a.symbol}${a.index}`;
-        return { index: a.index, x: a.x, y: a.y, z: a.z, text };
-      });
-  }, [showLabels, atoms, colorByCharge, chargeMap]);
-  labelItemsRef.current = labelItems;
+  // Dedicated on-screen D-pad navigation helpers
+  const nudgePan = (dx: number, dy: number) => {
+    const cam = cameraRef.current;
+    const ctrl = controlsRef.current;
+    if (!cam || !ctrl) return;
+    const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0).normalize();
+    const up = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 1).normalize();
+    const dist = cam.position.distanceTo(ctrl.target);
+    const step = Math.max(0.3, dist * 0.08);
+    const shift = new THREE.Vector3()
+      .addScaledVector(right, dx * step)
+      .addScaledVector(up, dy * step);
+    cam.position.add(shift);
+    ctrl.target.add(shift);
+    ctrl.update();
+  };
+
+  const nudgeZoom = (factor: number) => {
+    const cam = cameraRef.current;
+    const ctrl = controlsRef.current;
+    if (!cam || !ctrl) return;
+    const offset = cam.position.clone().sub(ctrl.target);
+    const newLen = Math.max(1.5, Math.min(200, offset.length() * factor));
+    offset.setLength(newLen);
+    cam.position.copy(ctrl.target).add(offset);
+    ctrl.update();
+  };
+
+  const recenterOrigin = () => {
+    const cam = cameraRef.current;
+    const ctrl = controlsRef.current;
+    if (!cam || !ctrl) return;
+    const delta = ctrl.target.clone();
+    cam.position.sub(delta);
+    ctrl.target.set(0, 0, 0);
+    ctrl.update();
+  };
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const el = containerRef.current;
@@ -1049,21 +1125,76 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
           </div>
         )}
 
-        {/* Projected Atom Labels (0-frame lag synchronous DOM transform) */}
-        {showLabels &&
-          labelItems.map((lbl) => (
-            <div
-              key={lbl.index}
-              ref={(el) => {
-                if (el) labelDomRefs.current.set(lbl.index, el);
-                else labelDomRefs.current.delete(lbl.index);
-              }}
-              className="pointer-events-none absolute left-0 top-0 px-1.5 py-0.5 rounded bg-slate-950/75 border border-slate-700/60 text-[10px] font-mono text-slate-200 shadow will-change-transform"
-              style={{ visibility: 'hidden' }}
-            >
-              {lbl.text}
+        {/* Floating On-Screen 3D Move / Zoom / Recenter Pad */}
+        {atoms.length > 0 && (
+          <div className="absolute bottom-12 right-3 pointer-events-auto flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-md border border-slate-700/70 rounded-xl p-1.5 shadow-xl">
+            <div className="grid grid-cols-3 gap-0.5">
+              <div />
+              <Tooltip content="向上平移视野" position="top">
+                <button
+                  onClick={() => nudgePan(0, -1)}
+                  className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-sky-300 transition cursor-pointer"
+                >
+                  <ArrowUp className="w-3 h-3" />
+                </button>
+              </Tooltip>
+              <div />
+              <Tooltip content="向左平移视野" position="top">
+                <button
+                  onClick={() => nudgePan(1, 0)}
+                  className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-sky-300 transition cursor-pointer"
+                >
+                  <ArrowLeft className="w-3 h-3" />
+                </button>
+              </Tooltip>
+              <Tooltip content="归位旋转中心到分子质心（解决偏心旋转）" title="中心归位" position="top">
+                <button
+                  onClick={recenterOrigin}
+                  className="p-1 rounded bg-sky-500/20 hover:bg-sky-500/35 text-sky-300 border border-sky-400/30 transition cursor-pointer"
+                >
+                  <Crosshair className="w-3 h-3" />
+                </button>
+              </Tooltip>
+              <Tooltip content="向右平移视野" position="top">
+                <button
+                  onClick={() => nudgePan(-1, 0)}
+                  className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-sky-300 transition cursor-pointer"
+                >
+                  <ArrowRight className="w-3 h-3" />
+                </button>
+              </Tooltip>
+              <div />
+              <Tooltip content="向下平移视野" position="top">
+                <button
+                  onClick={() => nudgePan(0, 1)}
+                  className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-sky-300 transition cursor-pointer"
+                >
+                  <ArrowDown className="w-3 h-3" />
+                </button>
+              </Tooltip>
+              <div />
             </div>
-          ))}
+
+            <div className="flex flex-col gap-0.5 pl-1 border-l border-slate-800">
+              <Tooltip content="放大分子" position="left">
+                <button
+                  onClick={() => nudgeZoom(0.84)}
+                  className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-sky-300 transition cursor-pointer"
+                >
+                  <ZoomIn className="w-3 h-3" />
+                </button>
+              </Tooltip>
+              <Tooltip content="缩小分子" position="left">
+                <button
+                  onClick={() => nudgeZoom(1.18)}
+                  className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-sky-300 transition cursor-pointer"
+                >
+                  <ZoomOut className="w-3 h-3" />
+                </button>
+              </Tooltip>
+            </div>
+          </div>
+        )}
 
         {/* Empty State */}
         {atoms.length === 0 && (
