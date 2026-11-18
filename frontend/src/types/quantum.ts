@@ -11,7 +11,38 @@ export type WorkspaceId =
   | 'advanced'
   | 'menu-explorer'
   | 'ai-agent'
-  | 'export-hub';
+  | 'export-hub'
+  | 'linux-server';
+
+export interface RemoteServerProfile {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  password?: string;
+  key_path?: string;
+  remote_work_dir?: string;
+  remote_multiwfn_path?: string;
+}
+
+export interface RemoteFileInfo {
+  name: string;
+  path: string;
+  size: number;
+  is_dir: boolean;
+  mtime: number;
+  is_quantum_file: boolean;
+  ext: string;
+}
+
+export interface CustomMenuTemplate {
+  id: string;
+  name: string;
+  description: string;
+  commands: string[];
+  created_at?: string;
+}
 
 export interface HealthInfo {
   status: string;

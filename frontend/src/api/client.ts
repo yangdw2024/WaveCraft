@@ -450,5 +450,149 @@ export const api = {
       body: JSON.stringify(params),
     }),
 
+  testRemoteServer: (config: any) =>
+    reqJson<{
+      ok: boolean;
+      message: string;
+      uname?: string;
+      cpu_model?: string;
+      remote_multiwfn_path?: string | null;
+      error?: string;
+    }>('/remote/test', {
+      method: 'POST',
+      body: JSON.stringify(config),
+    }),
+
+  listRemoteFiles: (params: {
+    host: string;
+    port: number;
+    username: string;
+    password?: string;
+    key_path?: string;
+    remote_dir?: string;
+    pattern?: string;
+  }) =>
+    reqJson<{
+      ok: boolean;
+      current_dir: string;
+      count: number;
+      files: Array<{
+        name: string;
+        path: string;
+        size: number;
+        is_dir: boolean;
+        mtime: number;
+        is_quantum_file: boolean;
+        ext: string;
+      }>;
+      error?: string;
+    }>('/remote/files', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
+
+  fetchRemoteFile: (params: {
+    host: string;
+    port: number;
+    username: string;
+    password?: string;
+    key_path?: string;
+    remote_path: string;
+  }) =>
+    reqJson<{
+      ok: boolean;
+      remote_path: string;
+      local_path: string;
+      filename: string;
+      size_bytes: number;
+      duration_seconds: number;
+      message: string;
+      error?: string;
+    }>('/remote/fetch', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
+
+  execRemoteCmd: (params: {
+    host: string;
+    port: number;
+    username: string;
+    password?: string;
+    key_path?: string;
+    command: string;
+    work_dir?: string;
+  }) =>
+    reqJson<{
+      ok: boolean;
+      exit_code: number;
+      stdout: string;
+      stderr: string;
+      error?: string;
+    }>('/remote/exec-cmd', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
+
+  execRemoteMultiwfn: (params: {
+    host: string;
+    port: number;
+    username: string;
+    password?: string;
+    key_path?: string;
+    remote_file: string;
+    commands: string[];
+    multiwfn_bin?: string;
+    work_dir?: string;
+  }) =>
+    reqJson<{
+      ok: boolean;
+      exit_code: number;
+      stdout: string;
+      stderr: string;
+      work_dir?: string;
+      error?: string;
+    }>('/remote/exec-multiwfn', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
+
+  getRemoteConfig: () =>
+    reqJson<{
+      servers: Array<{
+        id: string;
+        name: string;
+        host: string;
+        port: number;
+        username: string;
+        password?: string;
+        key_path?: string;
+        remote_work_dir?: string;
+        remote_multiwfn_path?: string;
+      }>;
+    }>('/remote/config'),
+
+  saveRemoteConfig: (config: any) =>
+    reqJson<{ ok: boolean }>('/remote/config', {
+      method: 'POST',
+      body: JSON.stringify(config),
+    }),
+
+  getCustomMenuTemplates: () =>
+    reqJson<{
+      templates: Array<{
+        id: string;
+        name: string;
+        description: string;
+        commands: string[];
+        created_at?: string;
+      }>;
+    }>('/menu/custom-templates'),
+
+  saveCustomMenuTemplates: (templates: any[]) =>
+    reqJson<{ ok: boolean }>('/menu/custom-templates', {
+      method: 'POST',
+      body: JSON.stringify({ templates }),
+    }),
+
   downloadUrl: (path: string) => `${BASE}/download?path=${encodeURIComponent(path)}`,
 };

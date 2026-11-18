@@ -33,6 +33,7 @@ import {
 } from './workspaces/AdvancedAndMenuWorkspaces';
 import { AiAgentWorkspace } from './workspaces/AiAgentWorkspace';
 import { ExportHubWorkspace } from './workspaces/ExportHubWorkspace';
+import { LinuxServerWorkspace } from './workspaces/LinuxServerWorkspace';
 
 export function App() {
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceId>('file-hub');
@@ -276,6 +277,15 @@ export function App() {
           {visitedWorkspaces.has('export-hub') && (
             <div style={{ display: activeWorkspace === 'export-hub' ? 'block' : 'none' }}>
               <ExportHubWorkspace inspection={inspection} />
+            </div>
+          )}
+
+          {visitedWorkspaces.has('linux-server') && (
+            <div style={{ display: activeWorkspace === 'linux-server' ? 'block' : 'none' }}>
+              <LinuxServerWorkspace
+                inspection={inspection}
+                onSelectFile={loadFile}
+              />
             </div>
           )}
 

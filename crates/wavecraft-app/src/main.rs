@@ -1356,6 +1356,145 @@ async fn agent_models_handler(
     }
 }
 
+async fn call_linux_bridge(payload: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let py_script = PathBuf::from("scripts").join("linux_bridge.py");
+    let payload_str = serde_json::to_string(payload).map_err(|e| e.to_string())?;
+
+    let output = tokio::process::Command::new("python")
+        .arg(&py_script)
+        .arg("--json")
+        .arg(&payload_str)
+        .output()
+        .await
+        .map_err(|e| format!("启动 python linux_bridge.py 失败: {e}"))?;
+
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&stdout_str) {
+        if val["ok"].as_bool() == Some(false) {
+            let err = val["error"].as_str().unwrap_or("未知远程执行错误");
+            return Err(err.to_string());
+        }
+        Ok(val)
+    } else {
+        let stderr_str = String::from_utf8_lossy(&output.stderr);
+        Err(format!("解析桥接器响应失败: {stdout_str} {stderr_str}"))
+    }
+}
+
+async fn remote_test_handler(
+    Json(mut req): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    req["action"] = serde_json::json!("test");
+    match call_linux_bridge(&req).await {
+        Ok(res) => Ok(Json(res)),
+        Err(e) => Err(err_resp(StatusCode::BAD_REQUEST, e)),
+    }
+}
+
+async fn remote_files_handler(
+    Json(mut req): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    req["action"] = serde_json::json!("list_files");
+    match call_linux_bridge(&req).await {
+        Ok(res) => Ok(Json(res)),
+        Err(e) => Err(err_resp(StatusCode::BAD_REQUEST, e)),
+    }
+}
+
+async fn remote_fetch_handler(
+    State(state): State<AppState>,
+    Json(mut req): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    req["action"] = serde_json::json!("fetch_file");
+    let cfg = state.engine.get_config().await;
+    let local_dir = PathBuf::from(&cfg.work_dir_root).join("remote_fetched");
+    let _ = fs::create_dir_all(&local_dir);
+    req["local_dir"] = serde_json::json!(local_dir.to_string_lossy());
+
+    match call_linux_bridge(&req).await {
+        Ok(res) => Ok(Json(res)),
+        Err(e) => Err(err_resp(StatusCode::BAD_REQUEST, e)),
+    }
+}
+
+async fn remote_exec_cmd_handler(
+    Json(mut req): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    req["action"] = serde_json::json!("exec_cmd");
+    match call_linux_bridge(&req).await {
+        Ok(res) => Ok(Json(res)),
+        Err(e) => Err(err_resp(StatusCode::BAD_REQUEST, e)),
+    }
+}
+
+async fn remote_exec_multiwfn_handler(
+    Json(mut req): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    req["action"] = serde_json::json!("exec_multiwfn");
+    match call_linux_bridge(&req).await {
+        Ok(res) => Ok(Json(res)),
+        Err(e) => Err(err_resp(StatusCode::BAD_REQUEST, e)),
+    }
+}
+
+async fn remote_config_get_handler() -> impl IntoResponse {
+    let p = PathBuf::from("remote_servers.json");
+    if p.exists() {
+        if let Ok(content) = fs::read_to_string(&p) {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                return Json(val);
+            }
+        }
+    }
+    Json(serde_json::json!({
+        "servers": [
+            {
+                "id": "cluster-1",
+                "name": "超算/课题组 Linux 计算节点",
+                "host": "192.168.1.100",
+                "port": 22,
+                "username": "calc",
+                "remote_work_dir": "/home/calc/jobs",
+                "remote_multiwfn_path": "/home/calc/bin/Multiwfn"
+            }
+        ]
+    }))
+}
+
+async fn remote_config_save_handler(
+    Json(req): Json<serde_json::Value>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ApiError>)> {
+    let p = PathBuf::from("remote_servers.json");
+    let content = serde_json::to_string_pretty(&req)
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e.to_string()))?;
+    fs::write(&p, content)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, format!("保存配置失败: {e}")))?;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+async fn custom_templates_get_handler() -> impl IntoResponse {
+    let p = PathBuf::from("custom_templates.json");
+    if p.exists() {
+        if let Ok(content) = fs::read_to_string(&p) {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                return Json(val);
+            }
+        }
+    }
+    Json(serde_json::json!({ "templates": [] }))
+}
+
+async fn custom_templates_save_handler(
+    Json(req): Json<serde_json::Value>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ApiError>)> {
+    let p = PathBuf::from("custom_templates.json");
+    let content = serde_json::to_string_pretty(&req)
+        .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e.to_string()))?;
+    fs::write(&p, content)
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, format!("保存自定义模板失败: {e}")))?;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
 #[derive(Deserialize)]
 struct AgentChatReq {
     prompt: String,
@@ -1728,6 +1867,13 @@ async fn main() {
         .route("/sobko/search", post(sobko_search_handler))
         .route("/agent/chat", post(agent_chat_handler))
         .route("/agent/models", post(agent_models_handler))
+        .route("/remote/test", post(remote_test_handler))
+        .route("/remote/files", post(remote_files_handler))
+        .route("/remote/fetch", post(remote_fetch_handler))
+        .route("/remote/exec-cmd", post(remote_exec_cmd_handler))
+        .route("/remote/exec-multiwfn", post(remote_exec_multiwfn_handler))
+        .route("/remote/config", get(remote_config_get_handler).post(remote_config_save_handler))
+        .route("/menu/custom-templates", get(custom_templates_get_handler).post(custom_templates_save_handler))
         .route("/execute-raw", post(execute_raw_handler))
         .route("/download", get(download_handler));
 

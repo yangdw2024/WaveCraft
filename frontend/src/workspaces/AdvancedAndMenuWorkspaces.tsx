@@ -1,22 +1,29 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
+  Bookmark,
+  Check,
   CheckCircle2,
   Clock,
+  Copy,
   Download,
   GitMerge,
   Hexagon,
   Loader2,
   Play,
+  Plus,
   Search,
   Share2,
+  Star,
   Terminal,
   Trash2,
+  X,
 } from 'lucide-react';
 import { api } from '../api/client';
 import type {
   AromaticityResult,
   CdftAtomEntry,
   CriticalPoint,
+  CustomMenuTemplate,
   EspSurfaceResult,
   FuzzyResult,
   MenuCategory,
@@ -764,6 +771,99 @@ export const FunctionMenuWorkspace: React.FC<{
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Custom User Templates
+  const [customTemplates, setCustomTemplates] = useState<CustomMenuTemplate[]>([]);
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [newTplName, setNewTplName] = useState('');
+  const [newTplDesc, setNewTplDesc] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .getCustomMenuTemplates()
+      .then((res) => {
+        if (res?.templates) setCustomTemplates(res.templates);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSaveAsCustomTemplate = async () => {
+    if (!newTplName.trim()) return;
+    const cmds = customCmdText.split(/\r?\n/).map((s) => s.trimEnd());
+    const newTpl: CustomMenuTemplate = {
+      id: `custom_${Date.now()}`,
+      name: newTplName.trim(),
+      description: newTplDesc.trim() || '用户自定义命令流',
+      commands: cmds,
+      created_at: new Date().toLocaleDateString(),
+    };
+    const updated = [newTpl, ...customTemplates];
+    setCustomTemplates(updated);
+    try {
+      await api.saveCustomMenuTemplates(updated);
+      setSaveNotice(`已成功保存为自定义模板: 「${newTpl.name}」`);
+      setTimeout(() => setSaveNotice(null), 3000);
+      setSaveModalOpen(false);
+      setNewTplName('');
+      setNewTplDesc('');
+    } catch (e: any) {
+      alert(`保存失败: ${e.message}`);
+    }
+  };
+
+  const handleDeleteCustomTemplate = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('确定要删除此自定义命令流模板吗？')) return;
+    const updated = customTemplates.filter((t) => t.id !== id);
+    setCustomTemplates(updated);
+    try {
+      await api.saveCustomMenuTemplates(updated);
+    } catch (e: any) {
+      console.error(e);
+    }
+  };
+
+  const handleSelectCustomTemplate = (t: CustomMenuTemplate) => {
+    onSelectTemplate({
+      id: t.id,
+      main_id: 'custom',
+      sub_id: '1',
+      name: t.name,
+      description: t.description,
+      result_type: 'raw',
+      command_template: t.commands,
+      params: [],
+    });
+    setCustomCmdText(t.commands.join('\n'));
+  };
+
+  const copyCommands = () => {
+    if (!customCmdText) return;
+    navigator.clipboard.writeText(customCmdText);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleExportScript = (type: 'sh' | 'bat') => {
+    if (!customCmdText.trim()) return;
+    const molName = inspection?.file_name || 'molecule';
+    const lines = customCmdText.split(/\r?\n/).map((s) => s.trimEnd());
+    let content = '';
+    if (type === 'sh') {
+      content = `#!/bin/bash\n# WaveCraft Multiwfn Custom Command Script\n# Target: ${molName}\nMultiwfn "${molName}" << 'EOF'\n${lines.join('\n')}\nEOF\n`;
+    } else {
+      content = `@echo off\n:: WaveCraft Multiwfn Custom Command Batch Script\n:: Target: ${molName}\n(for %%i in (\n${lines.map(l => `  "${l}"`).join('\n')}\n) do @echo %%~i) | Multiwfn "${molName}"\n`;
+    }
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${molName}_custom_commands.${type}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   React.useEffect(() => {
     if (!selectedTemplate && categories.length > 0 && categories[0].items.length > 0) {
       onSelectTemplate(categories[0].items[0]);
@@ -839,6 +939,46 @@ export const FunctionMenuWorkspace: React.FC<{
         </div>
 
         <div className="max-h-[560px] overflow-y-auto space-y-3 pr-1">
+          {/* Custom Templates Section */}
+          {customTemplates.length > 0 && (
+            <div className="space-y-1 pb-2 border-b border-slate-800/80">
+              <div className="flex items-center justify-between text-[11px] font-bold text-amber-400 px-1">
+                <span className="flex items-center gap-1">
+                  <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                  <span>我的自定义命令流 ({customTemplates.length})</span>
+                </span>
+              </div>
+              {customTemplates.map((t) => {
+                const active = selectedTemplate?.id === t.id;
+                return (
+                  <div
+                    key={t.id}
+                    className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl text-xs transition border group ${
+                      active
+                        ? 'bg-amber-500/20 border-amber-400/50 text-amber-100'
+                        : 'bg-slate-900/60 border-transparent hover:border-slate-700 text-slate-300'
+                    }`}
+                  >
+                    <button
+                      onClick={() => handleSelectCustomTemplate(t)}
+                      className="flex-1 text-left min-w-0 cursor-pointer"
+                    >
+                      <span className="font-mono text-amber-300 mr-1.5">[⭐]</span>
+                      <span className="font-medium truncate">{t.name}</span>
+                    </button>
+                    <button
+                      onClick={(e) => handleDeleteCustomTemplate(t.id, e)}
+                      className="opacity-0 group-hover:opacity-100 p-1 text-slate-500 hover:text-rose-400 transition cursor-pointer"
+                      title="删除此自定义模板"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {categories.map((cat) => {
             const q = filter.trim().toLowerCase();
             const matched = cat.items.filter(
@@ -957,6 +1097,52 @@ export const FunctionMenuWorkspace: React.FC<{
                 )}
                 <span>执行 Multiwfn 命令序列</span>
               </button>
+
+              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setSaveModalOpen(true)}
+                  className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/40 text-[11px] font-medium text-amber-300 flex items-center gap-1 transition cursor-pointer"
+                  title="将当前命令流保存为持久化自定义模板"
+                >
+                  <Star className="w-3 h-3 text-amber-400" />
+                  <span>另存为自定义模板</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={copyCommands}
+                  className="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-[11px] text-slate-300 hover:text-white flex items-center gap-1 transition cursor-pointer"
+                  title="复制当前命令流"
+                >
+                  {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                  <span>{copied ? '已复制' : '复制'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleExportScript('sh')}
+                  className="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-[11px] font-mono text-slate-300 hover:text-white transition cursor-pointer"
+                  title="导出为 Linux Shell 脚本 (.sh)"
+                >
+                  .sh
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleExportScript('bat')}
+                  className="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-[11px] font-mono text-slate-300 hover:text-white transition cursor-pointer"
+                  title="导出为 Windows 批处理脚本 (.bat)"
+                >
+                  .bat
+                </button>
+              </div>
+
+              {saveNotice && (
+                <div className="mt-1.5 p-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-[10px] text-emerald-200">
+                  {saveNotice}
+                </div>
+              )}
             </div>
 
             <div className="md:col-span-8">
@@ -1028,6 +1214,77 @@ export const FunctionMenuWorkspace: React.FC<{
           </div>
         </div>
       </div>
+
+      {/* Save Custom Template Modal Dialog */}
+      {saveModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-slate-900 border border-amber-500/40 rounded-2xl p-5 max-w-md w-full space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-100 flex items-center gap-1.5">
+                <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
+                <span>保存为自定义 Multiwfn 命令模板</span>
+              </h3>
+              <button
+                onClick={() => setSaveModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="text-[11px] font-semibold text-slate-300 block mb-1">
+                  模板名称 *
+                </label>
+                <input
+                  value={newTplName}
+                  onChange={(e) => setNewTplName(e.target.value)}
+                  placeholder="如：[我的] 苯二聚体 IGMH 快速计算"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-100 text-xs focus:outline-none focus:border-amber-400"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-slate-300 block mb-1">
+                  模板描述与说明
+                </label>
+                <input
+                  value={newTplDesc}
+                  onChange={(e) => setNewTplDesc(e.target.value)}
+                  placeholder="如：设定两片段执行 IGMH 弱相互作用分析并输出"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-100 text-xs focus:outline-none focus:border-amber-400"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-slate-400 block mb-1">
+                  命令流预览 ({customCmdText.split(/\r?\n/).filter(Boolean).length} 行指令)
+                </label>
+                <pre className="max-h-28 overflow-auto bg-slate-950 border border-slate-800 rounded-xl p-2.5 font-mono text-[11px] text-cyan-300 whitespace-pre-wrap">
+                  {customCmdText || '(空)'}
+                </pre>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                onClick={() => setSaveModalOpen(false)}
+                className="px-3 py-1.5 rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 text-xs cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                disabled={!newTplName.trim()}
+                onClick={handleSaveAsCustomTemplate}
+                className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:brightness-110 text-slate-950 font-bold text-xs disabled:opacity-50 cursor-pointer shadow-lg shadow-amber-500/20"
+              >
+                保存模板
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
