@@ -889,7 +889,7 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
           {/* Quick height presets */}
           {!isMaximized && resizable && (
             <div className="hidden sm:flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-[10px] font-mono">
-              <Tooltip content="视口高度 380px，紧凑型展示" title="紧凑尺寸">
+              <Tooltip content="视口高度 380px，紧凑型展示" title="紧凑尺寸" position="bottom">
                 <button
                   onClick={() => setViewportHeight(380)}
                   className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
@@ -899,7 +899,7 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
                   紧凑
                 </button>
               </Tooltip>
-              <Tooltip content="视口高度 540px，兼顾结构与参数" title="标准尺寸">
+              <Tooltip content="视口高度 540px，兼顾结构与参数" title="标准尺寸" position="bottom">
                 <button
                   onClick={() => setViewportHeight(540)}
                   className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
@@ -909,7 +909,7 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
                   标准
                 </button>
               </Tooltip>
-              <Tooltip content="视口高度 760px，超大视界精细剖析" title="大屏巨幕">
+              <Tooltip content="视口高度 760px，超大视界精细剖析" title="大屏巨幕" position="bottom">
                 <button
                   onClick={() => setViewportHeight(760)}
                   className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
@@ -927,6 +927,7 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
             content={isMaximized ? "退出全屏视口模式" : "铺满全屏沉浸式观察分子 3D 几何构型与等值面"}
             title={isMaximized ? "退出全屏" : "全屏放大"}
             shortcut="F / Esc"
+            position="bottom"
           >
             <button
               onClick={() => setIsMaximized((v) => !v)}
@@ -940,7 +941,7 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
             </button>
           </Tooltip>
 
-          <Tooltip content="导出当前 3D 分子高保真透明 PNG 图像" title="高清截图">
+          <Tooltip content="导出当前 3D 分子高保真透明 PNG 图像" title="高清截图" position="bottom">
             <button
               onClick={exportSnapshot}
               className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-sky-300 transition cursor-pointer"

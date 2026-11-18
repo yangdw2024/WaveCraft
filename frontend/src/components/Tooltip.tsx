@@ -59,14 +59,14 @@ export const Tooltip: React.FC<TooltipProps> = ({
       {children}
       {visible && (
         <div
-          className={`absolute z-50 pointer-events-none transition-all duration-150 transform scale-100 opacity-100 ${positionClasses}`}
+          className={`absolute z-50 pointer-events-none transition-all duration-150 transform scale-100 opacity-100 w-max max-w-xs ${positionClasses}`}
         >
-          <div className="bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-xl px-2.5 py-1.5 shadow-2xl shadow-black/60 max-w-xs whitespace-normal text-left">
+          <div className="bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-xl px-2.5 py-1.5 shadow-2xl shadow-black/60 text-left">
             {title && (
               <div className="text-[11px] font-bold text-sky-300 flex items-center justify-between gap-2 mb-0.5">
-                <span>{title}</span>
+                <span className="whitespace-nowrap">{title}</span>
                 {shortcut && (
-                  <span className="px-1 py-0.2 rounded bg-slate-800 text-slate-300 font-mono text-[9px] border border-slate-700">
+                  <span className="px-1 py-0.2 rounded bg-slate-800 text-slate-300 font-mono text-[9px] border border-slate-700 whitespace-nowrap">
                     {shortcut}
                   </span>
                 )}
@@ -77,7 +77,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
             </div>
             {!title && shortcut && (
               <div className="mt-1 flex justify-end">
-                <span className="px-1 py-0.2 rounded bg-slate-800 text-slate-400 font-mono text-[9px] border border-slate-700">
+                <span className="px-1 py-0.2 rounded bg-slate-800 text-slate-400 font-mono text-[9px] border border-slate-700 whitespace-nowrap">
                   {shortcut}
                 </span>
               </div>
