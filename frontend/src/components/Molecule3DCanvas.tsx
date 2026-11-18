@@ -21,10 +21,12 @@ import {
   MousePointer2,
   Move,
   PenTool,
+  Redo2,
   RotateCw,
   Ruler,
   Scan,
   Tag,
+  Undo2,
   X,
   ZoomIn,
   ZoomOut,
@@ -40,34 +42,91 @@ import type {
 } from '../types/quantum';
 import { Tooltip } from './Tooltip';
 
-function createAtomLabelSprite(text: string): THREE.Sprite {
+function createAtomLabelSprite(
+  symbol: string,
+  index: number,
+  chargeText?: string,
+  isSelected: boolean = false
+): THREE.Sprite {
   const canvas = document.createElement('canvas');
-  const dpr = 2;
-  const font = '700 22px ui-monospace, SFMono-Regular, Menlo, monospace';
+  const dpr = 3;
   const ctx = canvas.getContext('2d')!;
-  ctx.font = font;
-  const metrics = ctx.measureText(text);
-  const padX = 8;
-  const w = Math.ceil(metrics.width + padX * 2);
-  const h = 30;
+
+  const symbolFont = '700 20px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';
+  const indexFont = '600 16px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';
+  const chargeFont = '500 13px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';
+
+  ctx.font = symbolFont;
+  const symMetrics = ctx.measureText(symbol);
+  const symW = Math.ceil(symMetrics.width);
+
+  const indexStr = `${index}`;
+  ctx.font = indexFont;
+  const idxMetrics = ctx.measureText(indexStr);
+  const idxW = Math.ceil(idxMetrics.width);
+
+  let chgW = 0;
+  if (chargeText) {
+    ctx.font = chargeFont;
+    chgW = Math.ceil(ctx.measureText(chargeText).width) + 4;
+  }
+
+  const padX = 7;
+  const spacing = 3;
+  const w = symW + spacing + idxW + chgW + padX * 2;
+  const h = 26;
+
   canvas.width = w * dpr;
   canvas.height = h * dpr;
   ctx.scale(dpr, dpr);
 
-  // Clean high-contrast haloed text (no giant opaque box obscuring the molecule)
-  ctx.font = font;
-  ctx.textAlign = 'center';
+  // Pill badge background with rounded corners
+  const r = 6;
+  ctx.beginPath();
+  ctx.moveTo(r, 0);
+  ctx.lineTo(w - r, 0);
+  ctx.quadraticCurveTo(w, 0, w, r);
+  ctx.lineTo(w, h - r);
+  ctx.quadraticCurveTo(w, h, w - r, h);
+  ctx.lineTo(r, h);
+  ctx.quadraticCurveTo(0, h, 0, h - r);
+  ctx.lineTo(0, r);
+  ctx.quadraticCurveTo(0, 0, r, 0);
+  ctx.closePath();
+
+  ctx.fillStyle = isSelected ? 'rgba(8, 47, 73, 0.94)' : 'rgba(10, 16, 30, 0.90)';
+  ctx.fill();
+  ctx.strokeStyle = isSelected ? '#38bdf8' : 'rgba(148, 163, 184, 0.55)';
+  ctx.lineWidth = isSelected ? 1.8 : 1.0;
+  ctx.stroke();
+
+  // Draw Element Symbol in crisp bold white
   ctx.textBaseline = 'middle';
-  ctx.lineJoin = 'round';
-  ctx.lineWidth = 5;
-  ctx.strokeStyle = 'rgba(2, 6, 23, 0.92)';
-  ctx.strokeText(text, w / 2, h / 2);
-  ctx.fillStyle = '#f1f5f9';
-  ctx.fillText(text, w / 2, h / 2);
+  let curX = padX;
+  ctx.font = symbolFont;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(symbol, curX, h / 2);
+  curX += symW + spacing;
+
+  // Draw Atom Index in distinct cyan / sky color
+  ctx.font = indexFont;
+  ctx.fillStyle = isSelected ? '#bae6fd' : '#38bdf8';
+  ctx.fillText(indexStr, curX, h / 2);
+  curX += idxW;
+
+  // Draw Charge if available
+  if (chargeText) {
+    curX += 4;
+    ctx.font = chargeFont;
+    ctx.fillStyle = chargeText.startsWith('+') ? '#4ade80' : chargeText.startsWith('-') ? '#f87171' : '#cbd5e1';
+    ctx.fillText(chargeText, curX, h / 2);
+  }
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
   tex.needsUpdate = true;
 
   const mat = new THREE.SpriteMaterial({
@@ -77,9 +136,10 @@ function createAtomLabelSprite(text: string): THREE.Sprite {
     depthWrite: false,
   });
   const sprite = new THREE.Sprite(mat);
-  sprite.renderOrder = 20;
-  const worldH = 0.24;
+  sprite.renderOrder = 40;
+  const worldH = 0.22;
   sprite.scale.set(worldH * (w / h), worldH, 1);
+  sprite.userData = { atomIndex: index, isAtomLabel: true };
   return sprite;
 }
 
@@ -209,7 +269,8 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
   const dragStartHeightRef = useRef(0);
 
   // Rotation control mode: trackball (unconstrained 360° tumbling with no polar lock) vs orbit
-  const [controlMode, setControlMode] = useState<'trackball' | 'orbit'>('trackball');
+  // Rotation control mode: orbit (stable upright center) vs trackball (free tumble)
+  const [controlMode, setControlMode] = useState<'trackball' | 'orbit'>('orbit');
   const [dragAction, setDragAction] = useState<'rotate' | 'pan'>('rotate');
   const [selectMode, setSelectMode] = useState<'none' | 'box' | 'lasso'>('none');
   const [boxSelect, setBoxSelect] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
@@ -222,25 +283,78 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
   const autoRotateRef = useRef(false);
   autoRotateRef.current = autoRotate;
 
-  const [showLabels, setShowLabels] = useState(true);
+  // Label Scope: all (全显) | heavy (仅非氢) | selected (仅选中) | none (关闭)
+  const [labelScope, setLabelScope] = useState<'all' | 'heavy' | 'selected' | 'none'>('all');
+  const labelsRef = useRef<{ sprite: THREE.Sprite; atomIndex: number; pos: THREE.Vector3; radius: number }[]>([]);
+  const pickableObjectsRef = useRef<THREE.Object3D[]>([]);
   const [colorByCharge, setColorByCharge] = useState(false);
   const [showIso, setShowIso] = useState(true);
   const [isoWireframe, setIsoWireframe] = useState(false);
   const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
+  const undoStackRef = useRef<number[][]>([]);
+  const redoStackRef = useRef<number[][]>([]);
+  const [historyVersion, setHistoryVersion] = useState(0);
 
-  // Keyboard shortcut listener: F to toggle Fullscreen, Escape to exit
+  const commitSelection = (nextOrUpdater: number[] | ((prev: number[]) => number[])) => {
+    setSelectedIndices((prev) => {
+      const next = typeof nextOrUpdater === 'function' ? nextOrUpdater(prev) : nextOrUpdater;
+      if (prev.length === next.length && prev.every((v, i) => v === next[i])) {
+        return prev;
+      }
+      undoStackRef.current.push(prev);
+      if (undoStackRef.current.length > 40) undoStackRef.current.shift();
+      redoStackRef.current = [];
+      setHistoryVersion((v) => v + 1);
+      return next;
+    });
+  };
+
+  const undoSelection = () => {
+    const prev = undoStackRef.current.pop();
+    if (!prev) return;
+    setSelectedIndices((curr) => {
+      redoStackRef.current.push(curr);
+      setHistoryVersion((v) => v + 1);
+      return prev;
+    });
+  };
+
+  const redoSelection = () => {
+    const next = redoStackRef.current.pop();
+    if (!next) return;
+    setSelectedIndices((curr) => {
+      undoStackRef.current.push(curr);
+      setHistoryVersion((v) => v + 1);
+      return next;
+    });
+  };
+
+  // Keyboard shortcut listener: F (Fullscreen), Esc (Exit Fullscreen / Clear Selection), Ctrl+Z/Y (Undo/Redo)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) redoSelection();
+        else undoSelection();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        redoSelection();
+        return;
+      }
       if (e.key === 'f' || e.key === 'F') {
         setIsMaximized((v) => !v);
-      } else if (e.key === 'Escape' && isMaximized) {
-        setIsMaximized(false);
+      } else if (e.key === 'Escape') {
+        if (isMaximized) setIsMaximized(false);
+        else if (selectMode !== 'none') setSelectMode('none');
+        else if (selectedIndices.length > 0) commitSelection([]);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isMaximized]);
+  }, [isMaximized, selectMode, selectedIndices.length]);
 
   const startDragHeight = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -331,7 +445,7 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
   }, [atoms]);
 
   const measurementText = useMemo(() => {
-    if (selectedIndices.length === 0) return '点击原子可测距/测键角';
+    if (selectedIndices.length === 0) return '点击原子可测距 / 键角 / 二面角';
     const picked = selectedIndices
       .map((id) => atoms.find((a) => a.index === id))
       .filter((x): x is Atom3D => !!x);
@@ -347,11 +461,27 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
       const dist = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
       return `距离 ${a.symbol}${a.index}—${b.symbol}${b.index} = ${dist.toFixed(4)} Å`;
     }
-    const [a, b, c] = picked;
-    const v1 = new THREE.Vector3(a.x - b.x, a.y - b.y, a.z - b.z);
-    const v2 = new THREE.Vector3(c.x - b.x, c.y - b.y, c.z - b.z);
-    const angle = THREE.MathUtils.radToDeg(v1.angleTo(v2));
-    return `键角 ∠(${a.symbol}${a.index}-${b.symbol}${b.index}-${c.symbol}${c.index}) = ${angle.toFixed(2)}°`;
+    if (picked.length === 3) {
+      const [a, b, c] = picked;
+      const v1 = new THREE.Vector3(a.x - b.x, a.y - b.y, a.z - b.z);
+      const v2 = new THREE.Vector3(c.x - b.x, c.y - b.y, c.z - b.z);
+      const angle = THREE.MathUtils.radToDeg(v1.angleTo(v2));
+      return `键角 ∠(${a.symbol}${a.index}-${b.symbol}${b.index}-${c.symbol}${c.index}) = ${angle.toFixed(2)}°`;
+    }
+    if (picked.length === 4) {
+      const [a, b, c, d] = picked;
+      const b1 = new THREE.Vector3(b.x - a.x, b.y - a.y, b.z - a.z);
+      const b2 = new THREE.Vector3(c.x - b.x, c.y - b.y, c.z - b.z).normalize();
+      const b3 = new THREE.Vector3(d.x - c.x, d.y - c.y, d.z - c.z);
+      const n1 = new THREE.Vector3().crossVectors(b1, b2);
+      const n2 = new THREE.Vector3().crossVectors(b2, b3);
+      const crossN = new THREE.Vector3().crossVectors(n1, n2);
+      const sinPhi = crossN.dot(b2);
+      const cosPhi = n1.dot(n2);
+      const dihedral = THREE.MathUtils.radToDeg(Math.atan2(sinPhi, cosPhi));
+      return `二面角 φ(${a.symbol}${a.index}-${b.symbol}${b.index}-${c.symbol}${c.index}-${d.symbol}${d.index}) = ${dihedral.toFixed(2)}°`;
+    }
+    return `已选 ${picked.length} 个原子`;
   }, [selectedIndices, atoms, chargeMap]);
 
   // Setup Three.js scene once
@@ -415,7 +545,7 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
         ob.dampingFactor = 0.08;
         ob.rotateSpeed = 0.78;
         ob.zoomSpeed = 0.95;
-        ob.panSpeed = 0.5;
+        ob.panSpeed = 0.35;
         ob.enablePan = true;
         ob.screenSpacePanning = true;
         ob.mouseButtons =
@@ -456,6 +586,7 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     ro.observe(el);
 
     let rafId = 0;
+    const dir = new THREE.Vector3();
     const animate = () => {
       rafId = requestAnimationFrame(animate);
       const ctrl = controlsRef.current;
@@ -466,6 +597,18 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
         camera.lookAt(ctrl.target);
       }
       ctrl?.update();
+
+      // Dynamically orient each atom label sprite on the front hemisphere surface facing the camera
+      if (camera && labelsRef.current.length > 0) {
+        const camPos = camera.position;
+        const labels = labelsRef.current;
+        for (let i = 0; i < labels.length; i++) {
+          const item = labels[i];
+          dir.subVectors(camPos, item.pos).normalize();
+          item.sprite.position.copy(item.pos).addScaledVector(dir, item.radius * 0.95 + 0.04);
+        }
+      }
+
       renderer.render(scene, camera);
     };
     animate();
@@ -513,7 +656,7 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
       ob.dampingFactor = 0.08;
       ob.rotateSpeed = 0.78;
       ob.zoomSpeed = 0.95;
-      ob.panSpeed = 0.5;
+      ob.panSpeed = 0.35;
       ob.enablePan = true;
       ob.screenSpacePanning = true;
       ob.mouseButtons =
@@ -562,6 +705,8 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     const group = new THREE.Group();
     group.name = 'wavecraft-mol-group';
     atomMeshesRef.current = [];
+    pickableObjectsRef.current = [];
+    labelsRef.current = [];
 
     // Compute molecule centroid
     const center = new THREE.Vector3();
@@ -605,6 +750,7 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
       mesh.userData = { atomIndex: atom.index };
       group.add(mesh);
       atomMeshesRef.current.push(mesh);
+      pickableObjectsRef.current.push(mesh);
 
       if (isSelected) {
         const ringGeo = new THREE.RingGeometry(radius * 1.25, radius * 1.45, 32);
@@ -614,7 +760,9 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
         });
         const ring = new THREE.Mesh(ringGeo, ringMat);
         ring.position.copy(mesh.position);
+        ring.userData = { atomIndex: atom.index, isSelectionRing: true };
         group.add(ring);
+        pickableObjectsRef.current.push(ring);
       }
     }
 
@@ -726,26 +874,40 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
       }
     }
 
-    // Native WebGL Sprite Atom Labels (0.00ms lag, zero jitter — rendered in the exact same GPU pass)
-    if (showLabels && atoms.length > 0) {
-      const labeledAtoms = atoms.filter(
-        (a) => atoms.length <= 60 || (a.symbol !== 'H' && atoms.length <= 120)
-      );
+    // Native WebGL Sprite Atom Labels (Zero lag, dual-color crisp pill, camera-facing anchor)
+    if (labelScope !== 'none' && atoms.length > 0) {
+      const labeledAtoms = atoms.filter((a) => {
+        if (labelScope === 'selected') {
+          return selectedIndices.includes(a.index);
+        }
+        if (labelScope === 'heavy') {
+          return a.symbol !== 'H' || selectedIndices.includes(a.index);
+        }
+        // 'all': for very large molecules (>150), fallback to heavy atoms unless selected to prevent severe clutter
+        if (atoms.length > 150) {
+          return a.symbol !== 'H' || selectedIndices.includes(a.index);
+        }
+        return true;
+      });
+
       for (const a of labeledAtoms) {
         const q = chargeMap.get(a.index);
-        const text =
-          colorByCharge && q !== undefined
-            ? `${a.symbol}${a.index} (${q >= 0 ? '+' : ''}${q.toFixed(2)})`
-            : `${a.symbol}${a.index}`;
-        const sprite = createAtomLabelSprite(text);
+        const chargeText = colorByCharge && q !== undefined
+          ? `${q >= 0 ? '+' : ''}${q.toFixed(2)}`
+          : undefined;
+        const isSelected = selectedIndices.includes(a.index);
+        const sprite = createAtomLabelSprite(a.symbol, a.index, chargeText, isSelected);
         const radius =
           style === 'spacefill'
             ? a.vdw_radius * 0.72
             : style === 'wireframe'
               ? 0.14
               : Math.max(0.22, a.covalent_radius * 0.42);
-        sprite.position.set(a.x - center.x, a.y - center.y + radius + 0.24, a.z - center.z);
+        const atomPos = new THREE.Vector3(a.x - center.x, a.y - center.y, a.z - center.z);
+        sprite.position.copy(atomPos);
         group.add(sprite);
+        labelsRef.current.push({ sprite, atomIndex: a.index, pos: atomPos, radius });
+        pickableObjectsRef.current.push(sprite);
       }
     }
 
@@ -778,7 +940,8 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     isoOpacity,
     isoWireframe,
     criticalPoints,
-    showLabels,
+    labelScope,
+    selectedIndices,
   ]);
 
   // Dedicated on-screen D-pad navigation helpers
@@ -837,18 +1000,20 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     );
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(mouse, cam);
-    const hits = raycaster.intersectObjects(atomMeshesRef.current, false);
+    const hits = raycaster.intersectObjects(pickableObjectsRef.current, false);
     if (hits.length > 0) {
-      const atomIdx = hits[0].object.userData.atomIndex as number;
-      const multi = e.ctrlKey || e.metaKey || e.shiftKey;
-      setSelectedIndices((prev) => {
-        if (prev.includes(atomIdx)) return prev.filter((x) => x !== atomIdx);
-        const next = [...prev, atomIdx];
-        if (multi) return next;
-        return next.length > 4 ? next.slice(next.length - 4) : next;
-      });
-    } else if (selectedIndices.length > 0 && e.detail === 2) {
-      setSelectedIndices([]);
+      const atomIdx = hits[0].object.userData?.atomIndex as number | undefined;
+      if (atomIdx !== undefined) {
+        const multi = e.ctrlKey || e.metaKey || e.shiftKey;
+        commitSelection((prev) => {
+          if (prev.includes(atomIdx)) return prev.filter((x) => x !== atomIdx);
+          const next = [...prev, atomIdx];
+          if (multi) return next;
+          return next.length > 4 ? next.slice(next.length - 4) : next;
+        });
+      }
+    } else if (selectedIndices.length > 0 && !(e.ctrlKey || e.metaKey || e.shiftKey)) {
+      commitSelection([]);
     }
   };
 
@@ -935,13 +1100,15 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
 
     if (picked.length > 0) {
       if (e.shiftKey) {
-        setSelectedIndices((prev) => [...new Set([...prev, ...picked])]);
+        commitSelection((prev) => [...new Set([...prev, ...picked])]);
       } else if (e.altKey) {
         const rm = new Set(picked);
-        setSelectedIndices((prev) => prev.filter((id) => !rm.has(id)));
+        commitSelection((prev) => prev.filter((id) => !rm.has(id)));
       } else {
-        setSelectedIndices(picked);
+        commitSelection(picked);
       }
+    } else if (!e.shiftKey && !e.altKey && selectedIndices.length > 0) {
+      commitSelection([]);
     }
 
     setBoxSelect(null);
@@ -965,8 +1132,30 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
 
   const exportSnapshot = () => {
     const renderer = rendererRef.current;
-    if (!renderer) return;
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    if (!renderer || !scene || !camera) return;
+    // Temporarily hide selection rings and reset selection emissive highlights so exported PNG is 100% pure
+    const hiddenObjects: THREE.Object3D[] = [];
+    const restoredEmissives: { mat: THREE.MeshStandardMaterial; intensity: number }[] = [];
+    scene.traverse((obj) => {
+      if (obj.userData?.isSelectionRing && obj.visible) {
+        obj.visible = false;
+        hiddenObjects.push(obj);
+      }
+      if (obj instanceof THREE.Mesh && obj.userData?.atomIndex !== undefined) {
+        const mat = obj.material as THREE.MeshStandardMaterial;
+        if (mat && mat.emissiveIntensity > 0) {
+          restoredEmissives.push({ mat, intensity: mat.emissiveIntensity });
+          mat.emissiveIntensity = 0;
+        }
+      }
+    });
+    renderer.render(scene, camera);
     const dataUrl = renderer.domElement.toDataURL('image/png');
+    for (const obj of hiddenObjects) obj.visible = true;
+    for (const item of restoredEmissives) item.mat.emissiveIntensity = item.intensity;
+    renderer.render(scene, camera);
     const a = document.createElement('a');
     a.href = dataUrl;
     a.download = 'wavecraft_3d_view.png';
@@ -1089,16 +1278,51 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
             </>
           )}
 
-          <Tooltip content="在 3D 画布中显示原子元素与序号标签" title="原子标签">
+          <Tooltip
+            content={
+              labelScope === 'all'
+                ? '当前: 全显原子标签 (点击切换为: 仅非氢原子)'
+                : labelScope === 'heavy'
+                  ? '当前: 仅非氢重原子 (点击切换为: 仅选中原子)'
+                  : labelScope === 'selected'
+                    ? '当前: 仅选中原子 (点击切换为: 隐藏标签)'
+                    : '当前: 隐藏标签 (点击开启全显)'
+            }
+            title={`标签: ${
+              labelScope === 'all'
+                ? '全显'
+                : labelScope === 'heavy'
+                  ? '非氢'
+                  : labelScope === 'selected'
+                    ? '仅选中'
+                    : '关闭'
+            }`}
+          >
             <button
-              onClick={() => setShowLabels((v) => !v)}
-              className={`p-1.5 rounded-lg border transition cursor-pointer ${
-                showLabels
+              onClick={() => {
+                setLabelScope((prev) => {
+                  if (prev === 'all') return 'heavy';
+                  if (prev === 'heavy') return 'selected';
+                  if (prev === 'selected') return 'none';
+                  return 'all';
+                });
+              }}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg border transition cursor-pointer text-xs ${
+                labelScope !== 'none'
                   ? 'bg-sky-500/15 border-sky-400/35 text-sky-300'
                   : 'bg-slate-900 border-slate-800 text-slate-400'
               }`}
             >
               <Tag className="w-3.5 h-3.5" />
+              <span className="text-[10px] font-medium">
+                {labelScope === 'all'
+                  ? '全显'
+                  : labelScope === 'heavy'
+                    ? '非氢'
+                    : labelScope === 'selected'
+                      ? '选中'
+                      : '关'}
+              </span>
             </button>
           </Tooltip>
 
@@ -1222,9 +1446,6 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
         style={{
           height: isMaximized ? 'calc(100vh - 80px)' : `${viewportHeight}px`,
         }}
-        onMouseDown={handleViewportMouseDown}
-        onMouseMove={handleViewportMouseMove}
-        onMouseUp={handleViewportMouseUp}
       >
         <div
           ref={containerRef}
@@ -1238,6 +1459,16 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
                 : 'cursor-grab active:cursor-grabbing'
           }`}
         />
+
+        {/* Dedicated interactive overlay during Box & Lasso mode to cleanly intercept drag events */}
+        {selectMode !== 'none' && (
+          <div
+            className="absolute inset-0 z-20 cursor-crosshair"
+            onMouseDown={handleViewportMouseDown}
+            onMouseMove={handleViewportMouseMove}
+            onMouseUp={handleViewportMouseUp}
+          />
+        )}
 
         {/* Box & Lasso Selection Live Overlay */}
         {(boxSelect || lassoPoints.length > 0) && (
@@ -1497,7 +1728,7 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
                   <button
                     onClick={() => {
                       const sel = new Set(selectedIndices);
-                      setSelectedIndices(atoms.filter((a) => !sel.has(a.index)).map((a) => a.index));
+                      commitSelection(atoms.filter((a) => !sel.has(a.index)).map((a) => a.index));
                     }}
                     className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] transition cursor-pointer"
                   >
@@ -1506,13 +1737,35 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
                 </Tooltip>
 
                 <button
-                  onClick={() => setSelectedIndices([])}
+                  onClick={() => commitSelection([])}
                   className="flex items-center gap-0.5 text-slate-400 hover:text-rose-300 text-[10px] cursor-pointer"
                 >
                   <X className="w-3 h-3" />
                   <span>清除</span>
                 </button>
               </>
+            )}
+            {(undoStackRef.current.length > 0 || redoStackRef.current.length > 0 || historyVersion > 0) && (
+              <div className="flex items-center gap-0.5 pl-1 border-l border-slate-800">
+                <Tooltip content="撤销上一步选择" shortcut="Ctrl+Z" position="top">
+                  <button
+                    disabled={undoStackRef.current.length === 0}
+                    onClick={undoSelection}
+                    className="p-0.5 rounded text-slate-400 hover:text-sky-300 disabled:opacity-30 cursor-pointer disabled:cursor-default"
+                  >
+                    <Undo2 className="w-3 h-3" />
+                  </button>
+                </Tooltip>
+                <Tooltip content="重做选择" shortcut="Ctrl+Y" position="top">
+                  <button
+                    disabled={redoStackRef.current.length === 0}
+                    onClick={redoSelection}
+                    className="p-0.5 rounded text-slate-400 hover:text-sky-300 disabled:opacity-30 cursor-pointer disabled:cursor-default"
+                  >
+                    <Redo2 className="w-3 h-3" />
+                  </button>
+                </Tooltip>
+              </div>
             )}
           </div>
 
