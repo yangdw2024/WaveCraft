@@ -8,7 +8,9 @@ import {
   ArrowRight,
   ArrowUp,
   Camera,
+  Check,
   Compass,
+  Copy,
   Crosshair,
   Eye,
   EyeOff,
@@ -16,10 +18,14 @@ import {
   Layers,
   Maximize2,
   Minimize2,
+  MousePointer2,
   Move,
+  PenTool,
   RotateCw,
   Ruler,
+  Scan,
   Tag,
+  X,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
@@ -37,30 +43,27 @@ import { Tooltip } from './Tooltip';
 function createAtomLabelSprite(text: string): THREE.Sprite {
   const canvas = document.createElement('canvas');
   const dpr = 2;
-  const font = '600 22px ui-monospace, SFMono-Regular, Menlo, monospace';
+  const font = '700 22px ui-monospace, SFMono-Regular, Menlo, monospace';
   const ctx = canvas.getContext('2d')!;
   ctx.font = font;
   const metrics = ctx.measureText(text);
-  const padX = 12;
+  const padX = 8;
   const w = Math.ceil(metrics.width + padX * 2);
-  const h = 34;
+  const h = 30;
   canvas.width = w * dpr;
   canvas.height = h * dpr;
   ctx.scale(dpr, dpr);
 
-  ctx.fillStyle = 'rgba(2, 6, 23, 0.82)';
-  ctx.strokeStyle = 'rgba(100, 116, 139, 0.6)';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.roundRect(1, 1, w - 2, h - 2, 7);
-  ctx.fill();
-  ctx.stroke();
-
+  // Clean high-contrast haloed text (no giant opaque box obscuring the molecule)
   ctx.font = font;
-  ctx.fillStyle = '#e2e8f0';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(text, w / 2, h / 2 + 0.5);
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = 'rgba(2, 6, 23, 0.92)';
+  ctx.strokeText(text, w / 2, h / 2);
+  ctx.fillStyle = '#f1f5f9';
+  ctx.fillText(text, w / 2, h / 2);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.minFilter = THREE.LinearFilter;
@@ -70,14 +73,45 @@ function createAtomLabelSprite(text: string): THREE.Sprite {
   const mat = new THREE.SpriteMaterial({
     map: tex,
     transparent: true,
-    depthTest: false,
+    depthTest: true,
     depthWrite: false,
   });
   const sprite = new THREE.Sprite(mat);
-  sprite.renderOrder = 999;
-  const worldH = 0.4;
+  sprite.renderOrder = 20;
+  const worldH = 0.24;
   sprite.scale.set(worldH * (w / h), worldH, 1);
   return sprite;
+}
+
+function formatAtomSelectionRanges(indices: number[]): string {
+  if (indices.length === 0) return '';
+  const sorted = [...new Set(indices)].sort((a, b) => a - b);
+  const ranges: string[] = [];
+  let start = sorted[0];
+  let prev = sorted[0];
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] === prev + 1) {
+      prev = sorted[i];
+    } else {
+      ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+      start = sorted[i];
+      prev = sorted[i];
+    }
+  }
+  ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+  return ranges.join(',');
+}
+
+function pointInPolygon(x: number, y: number, poly: { x: number; y: number }[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x, yi = poly[i].y;
+    const xj = poly[j].x, yj = poly[j].y;
+    const intersect =
+      yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi + 1e-12) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
 }
 
 interface Molecule3DCanvasProps {
@@ -89,6 +123,7 @@ interface Molecule3DCanvasProps {
   criticalPoints?: CriticalPoint[];
   isoOpacity?: number;
   onIsoOpacityChange?: (v: number) => void;
+  onSelectFragmentAtoms?: (rangeExpr: string) => void;
   title?: string;
   heightClass?: string;
   defaultHeight?: number;
@@ -146,6 +181,7 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
   criticalPoints,
   isoOpacity = 0.62,
   onIsoOpacityChange,
+  onSelectFragmentAtoms,
   title = '3D 量子分子视口',
   heightClass = 'h-[500px]',
   defaultHeight,
@@ -175,6 +211,11 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
   // Rotation control mode: trackball (unconstrained 360° tumbling with no polar lock) vs orbit
   const [controlMode, setControlMode] = useState<'trackball' | 'orbit'>('trackball');
   const [dragAction, setDragAction] = useState<'rotate' | 'pan'>('rotate');
+  const [selectMode, setSelectMode] = useState<'none' | 'box' | 'lasso'>('none');
+  const [boxSelect, setBoxSelect] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  const [lassoPoints, setLassoPoints] = useState<{ x: number; y: number }[]>([]);
+  const isDrawingSelectionRef = useRef(false);
+  const [copiedRange, setCopiedRange] = useState(false);
 
   const [style, setStyle] = useState<RenderStyle>('ball-stick');
   const [autoRotate, setAutoRotate] = useState(false);
@@ -482,7 +523,16 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
       ob.target.copy(prevTarget);
       controlsRef.current = ob;
     }
+    if (controlsRef.current) {
+      controlsRef.current.enabled = selectMode === 'none';
+    }
   }, [controlMode, dragAction]);
+
+  useEffect(() => {
+    if (controlsRef.current) {
+      controlsRef.current.enabled = selectMode === 'none';
+    }
+  }, [selectMode]);
 
   // Populate / update geometry when molecule, style, charges, or isosurface changes
   useEffect(() => {
@@ -769,7 +819,13 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     ctrl.update();
   };
 
+  const selectionRangeExpr = useMemo(
+    () => formatAtomSelectionRanges(selectedIndices),
+    [selectedIndices]
+  );
+
   const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (selectMode !== 'none') return;
     const el = containerRef.current;
     const cam = cameraRef.current;
     if (!el || !cam || atomMeshesRef.current.length === 0) return;
@@ -784,14 +840,112 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     const hits = raycaster.intersectObjects(atomMeshesRef.current, false);
     if (hits.length > 0) {
       const atomIdx = hits[0].object.userData.atomIndex as number;
+      const multi = e.ctrlKey || e.metaKey || e.shiftKey;
       setSelectedIndices((prev) => {
         if (prev.includes(atomIdx)) return prev.filter((x) => x !== atomIdx);
         const next = [...prev, atomIdx];
-        return next.length > 3 ? next.slice(next.length - 3) : next;
+        if (multi) return next;
+        return next.length > 4 ? next.slice(next.length - 4) : next;
       });
     } else if (selectedIndices.length > 0 && e.detail === 2) {
       setSelectedIndices([]);
     }
+  };
+
+  const handleViewportMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (selectMode === 'none' || e.button !== 0) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    isDrawingSelectionRef.current = true;
+    if (selectMode === 'box') {
+      setBoxSelect({ x1: x, y1: y, x2: x, y2: y });
+    } else if (selectMode === 'lasso') {
+      setLassoPoints([{ x, y }]);
+    }
+  };
+
+  const handleViewportMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDrawingSelectionRef.current || selectMode === 'none') return;
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+    const y = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+    if (selectMode === 'box') {
+      setBoxSelect((prev) => (prev ? { ...prev, x2: x, y2: y } : null));
+    } else if (selectMode === 'lasso') {
+      setLassoPoints((prev) => {
+        const last = prev[prev.length - 1];
+        if (!last || Math.hypot(x - last.x, y - last.y) >= 4) {
+          return [...prev, { x, y }];
+        }
+        return prev;
+      });
+    }
+  };
+
+  const handleViewportMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDrawingSelectionRef.current || selectMode === 'none') return;
+    isDrawingSelectionRef.current = false;
+    const el = containerRef.current;
+    const cam = cameraRef.current;
+    if (!el || !cam) {
+      setBoxSelect(null);
+      setLassoPoints([]);
+      return;
+    }
+
+    const w = el.clientWidth;
+    const h = el.clientHeight;
+    cam.updateMatrixWorld();
+    const center = centerOffsetRef.current;
+    const proj = new THREE.Vector3();
+    const picked: number[] = [];
+
+    if (selectMode === 'box' && boxSelect) {
+      const minX = Math.min(boxSelect.x1, boxSelect.x2);
+      const maxX = Math.max(boxSelect.x1, boxSelect.x2);
+      const minY = Math.min(boxSelect.y1, boxSelect.y2);
+      const maxY = Math.max(boxSelect.y1, boxSelect.y2);
+      if (maxX - minX > 4 && maxY - minY > 4) {
+        for (const a of atoms) {
+          proj.set(a.x - center.x, a.y - center.y, a.z - center.z).project(cam);
+          if (proj.z >= 1) continue;
+          const sx = (proj.x * 0.5 + 0.5) * w;
+          const sy = (-proj.y * 0.5 + 0.5) * h;
+          if (sx >= minX && sx <= maxX && sy >= minY && sy <= maxY) {
+            picked.push(a.index);
+          }
+        }
+      }
+    } else if (selectMode === 'lasso' && lassoPoints.length >= 3) {
+      for (const a of atoms) {
+        proj.set(a.x - center.x, a.y - center.y, a.z - center.z).project(cam);
+        if (proj.z >= 1) continue;
+        const sx = (proj.x * 0.5 + 0.5) * w;
+        const sy = (-proj.y * 0.5 + 0.5) * h;
+        if (pointInPolygon(sx, sy, lassoPoints)) {
+          picked.push(a.index);
+        }
+      }
+    }
+
+    if (picked.length > 0) {
+      if (e.shiftKey) {
+        setSelectedIndices((prev) => [...new Set([...prev, ...picked])]);
+      } else if (e.altKey) {
+        const rm = new Set(picked);
+        setSelectedIndices((prev) => prev.filter((id) => !rm.has(id)));
+      } else {
+        setSelectedIndices(picked);
+      }
+    }
+
+    setBoxSelect(null);
+    setLassoPoints([]);
   };
 
   const resetView = () => {
@@ -1068,13 +1222,183 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
         style={{
           height: isMaximized ? 'calc(100vh - 80px)' : `${viewportHeight}px`,
         }}
+        onMouseDown={handleViewportMouseDown}
+        onMouseMove={handleViewportMouseMove}
+        onMouseUp={handleViewportMouseUp}
       >
         <div
           ref={containerRef}
           onClick={handleCanvasClick}
           onContextMenu={(e) => e.preventDefault()}
-          className={`w-full h-full ${dragAction === 'pan' ? 'cursor-move' : 'cursor-grab active:cursor-grabbing'}`}
+          className={`w-full h-full ${
+            selectMode !== 'none'
+              ? 'cursor-crosshair'
+              : dragAction === 'pan'
+                ? 'cursor-move'
+                : 'cursor-grab active:cursor-grabbing'
+          }`}
         />
+
+        {/* Box & Lasso Selection Live Overlay */}
+        {(boxSelect || lassoPoints.length > 0) && (
+          <svg className="pointer-events-none absolute inset-0 w-full h-full z-20">
+            {boxSelect && (
+              <rect
+                x={Math.min(boxSelect.x1, boxSelect.x2)}
+                y={Math.min(boxSelect.y1, boxSelect.y2)}
+                width={Math.abs(boxSelect.x2 - boxSelect.x1)}
+                height={Math.abs(boxSelect.y2 - boxSelect.y1)}
+                fill="rgba(56, 189, 248, 0.14)"
+                stroke="#38bdf8"
+                strokeWidth="1.5"
+                strokeDasharray="5 3"
+                rx="4"
+              />
+            )}
+            {lassoPoints.length > 1 && (
+              <polygon
+                points={lassoPoints.map((p) => `${p.x},${p.y}`).join(' ')}
+                fill="rgba(168, 85, 247, 0.16)"
+                stroke="#c084fc"
+                strokeWidth="1.75"
+                strokeDasharray="5 3"
+              />
+            )}
+          </svg>
+        )}
+
+        {/* Top-Left Floating Interaction Mode & 3D Navigation Dock (Always Visible) */}
+        {atoms.length > 0 && (
+          <div className="absolute top-3 left-3 z-30 pointer-events-auto flex flex-col gap-1.5">
+            {/* Mode Switcher: Rotate / Pan / Box Select / Lasso Select */}
+            <div className="flex items-center gap-0.5 bg-slate-950/90 backdrop-blur-md border border-slate-700/75 rounded-xl p-1 shadow-xl text-[11px]">
+              <Tooltip content="左键旋转分子；按住 Ctrl/Shift 点击原子可多选" title="浏览/旋转" position="bottom">
+                <button
+                  onClick={() => {
+                    setSelectMode('none');
+                    setDragAction('rotate');
+                  }}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg transition cursor-pointer ${
+                    selectMode === 'none' && dragAction === 'rotate'
+                      ? 'bg-sky-500/25 text-sky-200 border border-sky-400/40 font-semibold'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <MousePointer2 className="w-3 h-3" />
+                  <span>旋转</span>
+                </button>
+              </Tooltip>
+
+              <Tooltip content="左键直接平移分子位置（也可直接用右侧方向键微调）" title="平移模式" position="bottom">
+                <button
+                  onClick={() => {
+                    setSelectMode('none');
+                    setDragAction('pan');
+                  }}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg transition cursor-pointer ${
+                    selectMode === 'none' && dragAction === 'pan'
+                      ? 'bg-emerald-500/25 text-emerald-200 border border-emerald-400/40 font-semibold'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Move className="w-3 h-3" />
+                  <span>平移</span>
+                </button>
+              </Tooltip>
+
+              <Tooltip content="左键拖拽拉出矩形框批量选中原子（按住 Shift 加选，Alt 减选）" title="矩形框选" position="bottom">
+                <button
+                  onClick={() => setSelectMode((m) => (m === 'box' ? 'none' : 'box'))}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg transition cursor-pointer ${
+                    selectMode === 'box'
+                      ? 'bg-cyan-500/25 text-cyan-200 border border-cyan-400/40 font-semibold'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Scan className="w-3 h-3" />
+                  <span>框选</span>
+                </button>
+              </Tooltip>
+
+              <Tooltip content="左键自由手绘闭合套索，精准选中不规则分子片段（支持 Shift 加选 / Alt 减选）" title="套索多选" position="bottom">
+                <button
+                  onClick={() => setSelectMode((m) => (m === 'lasso' ? 'none' : 'lasso'))}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg transition cursor-pointer ${
+                    selectMode === 'lasso'
+                      ? 'bg-violet-500/25 text-violet-200 border border-violet-400/40 font-semibold'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <PenTool className="w-3 h-3" />
+                  <span>套索</span>
+                </button>
+              </Tooltip>
+            </div>
+
+            {/* Dedicated On-Screen Move / Center / Zoom Bar */}
+            <div className="inline-flex self-start items-center gap-1 bg-slate-950/90 backdrop-blur-md border border-slate-700/75 rounded-xl p-1 shadow-xl">
+              <Tooltip content="向左移动" position="bottom">
+                <button
+                  onClick={() => nudgePan(1, 0)}
+                  className="p-1 rounded-lg bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-sky-300 transition cursor-pointer"
+                >
+                  <ArrowLeft className="w-3 h-3" />
+                </button>
+              </Tooltip>
+              <Tooltip content="向上移动" position="bottom">
+                <button
+                  onClick={() => nudgePan(0, -1)}
+                  className="p-1 rounded-lg bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-sky-300 transition cursor-pointer"
+                >
+                  <ArrowUp className="w-3 h-3" />
+                </button>
+              </Tooltip>
+              <Tooltip content="向下移动" position="bottom">
+                <button
+                  onClick={() => nudgePan(0, 1)}
+                  className="p-1 rounded-lg bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-sky-300 transition cursor-pointer"
+                >
+                  <ArrowDown className="w-3 h-3" />
+                </button>
+              </Tooltip>
+              <Tooltip content="向右移动" position="bottom">
+                <button
+                  onClick={() => nudgePan(-1, 0)}
+                  className="p-1 rounded-lg bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-sky-300 transition cursor-pointer"
+                >
+                  <ArrowRight className="w-3 h-3" />
+                </button>
+              </Tooltip>
+
+              <div className="w-px h-4 bg-slate-800 mx-0.5" />
+
+              <Tooltip content="把旋转中心归位到分子质心（解决平移后旋转偏心）" title="中心归位" position="bottom">
+                <button
+                  onClick={recenterOrigin}
+                  className="p-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/35 text-sky-300 border border-sky-400/30 transition cursor-pointer"
+                >
+                  <Crosshair className="w-3 h-3" />
+                </button>
+              </Tooltip>
+              <Tooltip content="放大分子" position="bottom">
+                <button
+                  onClick={() => nudgeZoom(0.84)}
+                  className="p-1 rounded-lg bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-sky-300 transition cursor-pointer"
+                >
+                  <ZoomIn className="w-3 h-3" />
+                </button>
+              </Tooltip>
+              <Tooltip content="缩小分子" position="bottom">
+                <button
+                  onClick={() => nudgeZoom(1.18)}
+                  className="p-1 rounded-lg bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-sky-300 transition cursor-pointer"
+                >
+                  <ZoomOut className="w-3 h-3" />
+                </button>
+              </Tooltip>
+            </div>
+          </div>
+        )}
 
         {/* Floating Scientific BGR Colorbar (for mapped NCI / IGMH) */}
         {isosurface?.color_scale === 'bgr' && (
@@ -1125,77 +1449,6 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
           </div>
         )}
 
-        {/* Floating On-Screen 3D Move / Zoom / Recenter Pad */}
-        {atoms.length > 0 && (
-          <div className="absolute bottom-12 right-3 pointer-events-auto flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-md border border-slate-700/70 rounded-xl p-1.5 shadow-xl">
-            <div className="grid grid-cols-3 gap-0.5">
-              <div />
-              <Tooltip content="向上平移视野" position="top">
-                <button
-                  onClick={() => nudgePan(0, -1)}
-                  className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-sky-300 transition cursor-pointer"
-                >
-                  <ArrowUp className="w-3 h-3" />
-                </button>
-              </Tooltip>
-              <div />
-              <Tooltip content="向左平移视野" position="top">
-                <button
-                  onClick={() => nudgePan(1, 0)}
-                  className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-sky-300 transition cursor-pointer"
-                >
-                  <ArrowLeft className="w-3 h-3" />
-                </button>
-              </Tooltip>
-              <Tooltip content="归位旋转中心到分子质心（解决偏心旋转）" title="中心归位" position="top">
-                <button
-                  onClick={recenterOrigin}
-                  className="p-1 rounded bg-sky-500/20 hover:bg-sky-500/35 text-sky-300 border border-sky-400/30 transition cursor-pointer"
-                >
-                  <Crosshair className="w-3 h-3" />
-                </button>
-              </Tooltip>
-              <Tooltip content="向右平移视野" position="top">
-                <button
-                  onClick={() => nudgePan(-1, 0)}
-                  className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-sky-300 transition cursor-pointer"
-                >
-                  <ArrowRight className="w-3 h-3" />
-                </button>
-              </Tooltip>
-              <div />
-              <Tooltip content="向下平移视野" position="top">
-                <button
-                  onClick={() => nudgePan(0, 1)}
-                  className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-sky-300 transition cursor-pointer"
-                >
-                  <ArrowDown className="w-3 h-3" />
-                </button>
-              </Tooltip>
-              <div />
-            </div>
-
-            <div className="flex flex-col gap-0.5 pl-1 border-l border-slate-800">
-              <Tooltip content="放大分子" position="left">
-                <button
-                  onClick={() => nudgeZoom(0.84)}
-                  className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-sky-300 transition cursor-pointer"
-                >
-                  <ZoomIn className="w-3 h-3" />
-                </button>
-              </Tooltip>
-              <Tooltip content="缩小分子" position="left">
-                <button
-                  onClick={() => nudgeZoom(1.18)}
-                  className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-sky-300 transition cursor-pointer"
-                >
-                  <ZoomOut className="w-3 h-3" />
-                </button>
-              </Tooltip>
-            </div>
-          </div>
-        )}
-
         {/* Empty State */}
         {atoms.length === 0 && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 pointer-events-none">
@@ -1204,18 +1457,62 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
           </div>
         )}
 
-        {/* Bottom HUD */}
-        <div className="absolute bottom-2.5 left-3 right-3 flex items-center justify-between gap-2 pointer-events-none">
-          <div className="pointer-events-auto flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950/85 border border-slate-800/90 text-[11px] text-slate-300 backdrop-blur">
-            <Ruler className="w-3.5 h-3.5 text-sky-400" />
-            <span className="font-mono">{measurementText}</span>
+        {/* Bottom HUD: Measurement + Multi-Selection Range & Fragment Binding */}
+        <div className="absolute bottom-2.5 left-3 right-3 flex items-center justify-between gap-2 pointer-events-none flex-wrap">
+          <div className="pointer-events-auto flex items-center gap-2 flex-wrap px-3 py-1.5 rounded-xl bg-slate-950/90 border border-slate-800/90 text-[11px] text-slate-300 backdrop-blur shadow-lg">
+            <Ruler className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+            <span className="font-mono">
+              {selectedIndices.length > 4
+                ? `已选 ${selectedIndices.length} 个原子 · 范围: ${selectionRangeExpr}`
+                : measurementText}
+            </span>
             {selectedIndices.length > 0 && (
-              <button
-                onClick={() => setSelectedIndices([])}
-                className="text-slate-400 hover:text-white ml-1 underline cursor-pointer"
-              >
-                清除
-              </button>
+              <>
+                <Tooltip content={`复制 Multiwfn 原子序号范围: ${selectionRangeExpr}`} position="top">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(selectionRangeExpr);
+                      setCopiedRange(true);
+                      setTimeout(() => setCopiedRange(false), 1800);
+                    }}
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 font-mono text-[10px] transition cursor-pointer"
+                  >
+                    {copiedRange ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedRange ? '已复制' : selectionRangeExpr}</span>
+                  </button>
+                </Tooltip>
+
+                {onSelectFragmentAtoms && (
+                  <Tooltip content="直接将当前选中的原子范围填入弱相互作用「片段1」输入框" title="联动分析" position="top">
+                    <button
+                      onClick={() => onSelectFragmentAtoms(selectionRangeExpr)}
+                      className="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-300 border border-emerald-400/35 text-[10px] font-semibold transition cursor-pointer"
+                    >
+                      设为片段1
+                    </button>
+                  </Tooltip>
+                )}
+
+                <Tooltip content="反选当前分子中未选中的其余原子" position="top">
+                  <button
+                    onClick={() => {
+                      const sel = new Set(selectedIndices);
+                      setSelectedIndices(atoms.filter((a) => !sel.has(a.index)).map((a) => a.index));
+                    }}
+                    className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] transition cursor-pointer"
+                  >
+                    反选
+                  </button>
+                </Tooltip>
+
+                <button
+                  onClick={() => setSelectedIndices([])}
+                  className="flex items-center gap-0.5 text-slate-400 hover:text-rose-300 text-[10px] cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                  <span>清除</span>
+                </button>
+              </>
             )}
           </div>
 

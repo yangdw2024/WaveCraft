@@ -635,6 +635,7 @@ export const WeakInteractionWorkspace: React.FC<{
                 isosurface={isosurface}
                 isoOpacity={isoOpacity}
                 onIsoOpacityChange={setIsoOpacity}
+                onSelectFragmentAtoms={setFragmentAtoms}
                 title={`3D ${method} 相互作用等值面 (BGR 色彩映射)`}
                 defaultHeight={580}
                 resizable={true}
@@ -698,6 +699,7 @@ export const WeakInteractionWorkspace: React.FC<{
               isosurface={isosurface}
               isoOpacity={isoOpacity}
               onIsoOpacityChange={setIsoOpacity}
+              onSelectFragmentAtoms={setFragmentAtoms}
               title={`3D ${method} 相互作用等值面 (BGR 色彩映射)`}
               defaultHeight={520}
               resizable={true}
@@ -733,6 +735,7 @@ export const WeakInteractionWorkspace: React.FC<{
               isosurface={isosurface}
               isoOpacity={isoOpacity}
               onIsoOpacityChange={setIsoOpacity}
+              onSelectFragmentAtoms={setFragmentAtoms}
               title={`3D ${method} 相互作用等值面 (沉浸巨幕)`}
               defaultHeight={680}
               resizable={true}
@@ -761,6 +764,7 @@ export const WeakInteractionWorkspace: React.FC<{
               isosurface={isosurface}
               isoOpacity={isoOpacity}
               onIsoOpacityChange={setIsoOpacity}
+              onSelectFragmentAtoms={setFragmentAtoms}
               title={`3D ${method} 相互作用等值面`}
               defaultHeight={420}
               resizable={true}

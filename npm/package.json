@@ -1,6 +1,6 @@
 {
   "name": "@yangdw2024/wavecraft",
-  "version": "4.0.2",
+  "version": "4.0.3",
   "description": "WaveCraft v4.0: High-performance Rust + React/Three.js WebGL quantum chemistry wavefunction analysis workbench for Multiwfn 3.8",
   "main": "index.js",
   "types": "index.d.ts",
