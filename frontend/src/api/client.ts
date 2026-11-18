@@ -407,12 +407,34 @@ export const api = {
       body: JSON.stringify({ query, top_k }),
     }),
 
+  fetchAgentModels: (params?: { api_url?: string; api_key?: string }) =>
+    reqJson<{
+      object: string;
+      data: Array<{
+        id: string;
+        display_name?: string;
+        context_length?: number;
+        max_context_length?: number;
+        max_tokens?: number;
+        max_completion_tokens?: number;
+        supports_images?: boolean;
+        supports_thinking?: boolean;
+        recommended?: boolean;
+      }>;
+    }>('/agent/models', {
+      method: 'POST',
+      body: JSON.stringify(params || {}),
+    }),
+
   agentChat: (params: {
     prompt: string;
     file_path?: string;
     api_url?: string;
     api_key?: string;
     model?: string;
+    reasoning_effort?: 'none' | 'low' | 'medium' | 'high';
+    max_tokens?: number;
+    images?: string[];
   }) =>
     reqJson<{
       answer: string;

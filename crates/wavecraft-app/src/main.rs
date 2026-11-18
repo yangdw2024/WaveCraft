@@ -1303,12 +1303,69 @@ async fn sobko_search_handler(
 }
 
 #[derive(Deserialize)]
+struct AgentModelsReq {
+    api_url: Option<String>,
+    api_key: Option<String>,
+}
+
+async fn agent_models_handler(
+    Json(req): Json<AgentModelsReq>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    let api_url = req
+        .api_url
+        .as_deref()
+        .unwrap_or("http://127.0.0.1:8045/v1");
+    let api_key = req
+        .api_key
+        .as_deref()
+        .unwrap_or("sk-c94f8f28c01d43dd84865a0cc8e0c9a3");
+
+    let endpoint = if api_url.ends_with("/models") {
+        api_url.to_string()
+    } else {
+        format!("{}/models", api_url.trim_end_matches('/'))
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(12))
+        .build()
+        .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, format!("HTTP Client 构造失败: {e}")))?;
+
+    match client
+        .get(&endpoint)
+        .header("Authorization", format!("Bearer {api_key}"))
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            let status = resp.status();
+            if status.is_success() {
+                if let Ok(json_body) = resp.json::<serde_json::Value>().await {
+                    return Ok(Json(json_body));
+                }
+            }
+            Err(err_resp(
+                StatusCode::BAD_GATEWAY,
+                format!("上游模型列表接口响应异常: HTTP {status}"),
+            ))
+        }
+        Err(e) => Err(err_resp(
+            StatusCode::BAD_GATEWAY,
+            format!("连接上游模型服务失败: {e}"),
+        )),
+    }
+}
+
+#[derive(Deserialize)]
 struct AgentChatReq {
     prompt: String,
     file_path: Option<String>,
     api_url: Option<String>,
     api_key: Option<String>,
     model: Option<String>,
+    reasoning_effort: Option<String>,
+    max_tokens: Option<u32>,
+    images: Option<Vec<String>>,
 }
 
 async fn agent_chat_handler(
@@ -1319,15 +1376,27 @@ async fn agent_chat_handler(
         .api_url
         .as_deref()
         .unwrap_or("http://127.0.0.1:8045/v1");
-    let api_key = req.api_key.as_deref().unwrap_or("sk-76bb4979e3f");
+    let api_key = req
+        .api_key
+        .as_deref()
+        .unwrap_or("sk-c94f8f28c01d43dd84865a0cc8e0c9a3");
     let model = req.model.as_deref().unwrap_or("gemini-3.8-flash");
 
     let mut steps = Vec::new();
 
+    let reasoning_info = match req.reasoning_effort.as_deref() {
+        Some(e) if e != "none" => format!("思考强度: {e}"),
+        _ => "标准推理".to_string(),
+    };
+    let image_info = match &req.images {
+        Some(imgs) if !imgs.is_empty() => format!("视觉多模态: {} 张图像", imgs.len()),
+        _ => "纯文本模态".to_string(),
+    };
+
     steps.push(serde_json::json!({
         "type": "thought",
         "title": "任务规划与上下文初始化",
-        "detail": format!("接收用户指令:「{}」；连接后端模型: {} ({})", req.prompt, model, api_url)
+        "detail": format!("接收用户指令:「{}」；连接后端模型: {} ({})；{}；{}", req.prompt, model, api_url, reasoning_info, image_info)
     }));
 
     // Step 1: Molecule Inspection
@@ -1436,19 +1505,54 @@ async fn agent_chat_handler(
         req.prompt, mol_summary, weak_findings, sobko_context
     );
 
+    let user_msg_value = if let Some(imgs) = &req.images {
+        if !imgs.is_empty() {
+            let mut parts = vec![serde_json::json!({
+                "type": "text",
+                "text": user_msg
+            })];
+            for img in imgs {
+                parts.push(serde_json::json!({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": img
+                    }
+                }));
+            }
+            serde_json::Value::Array(parts)
+        } else {
+            serde_json::Value::String(user_msg)
+        }
+    } else {
+        serde_json::Value::String(user_msg)
+    };
+
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(45))
+        .timeout(std::time::Duration::from_secs(60))
         .build()
         .unwrap();
 
-    let llm_payload = serde_json::json!({
-        "model": model,
-        "messages": [
+    let mut payload_map = serde_json::Map::new();
+    payload_map.insert("model".into(), serde_json::json!(model));
+    payload_map.insert(
+        "messages".into(),
+        serde_json::json!([
             { "role": "system", "content": system_prompt },
-            { "role": "user", "content": user_msg }
-        ],
-        "temperature": 0.3
-    });
+            { "role": "user", "content": user_msg_value }
+        ]),
+    );
+    payload_map.insert("temperature".into(), serde_json::json!(0.3));
+
+    if let Some(effort) = &req.reasoning_effort {
+        if effort != "none" {
+            payload_map.insert("reasoning_effort".into(), serde_json::json!(effort));
+        }
+    }
+    if let Some(mt) = req.max_tokens {
+        payload_map.insert("max_tokens".into(), serde_json::json!(mt));
+    }
+
+    let llm_payload = serde_json::Value::Object(payload_map);
 
     let endpoint = if api_url.ends_with("/chat/completions") {
         api_url.to_string()
@@ -1456,7 +1560,7 @@ async fn agent_chat_handler(
         format!("{}/chat/completions", api_url.trim_end_matches('/'))
     };
 
-    let report_content = match client
+    let (report_content, reasoning_trace) = match client
         .post(&endpoint)
         .header("Authorization", format!("Bearer {api_key}"))
         .header("Content-Type", "application/json")
@@ -1467,19 +1571,32 @@ async fn agent_chat_handler(
         Ok(resp) => {
             if resp.status().is_success() {
                 if let Ok(json_body) = resp.json::<serde_json::Value>().await {
-                    json_body["choices"][0]["message"]["content"]
+                    let c = json_body["choices"][0]["message"]["content"]
                         .as_str()
                         .unwrap_or("")
-                        .to_string()
+                        .to_string();
+                    let r = json_body["choices"][0]["message"]["reasoning_content"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string();
+                    (c, r)
                 } else {
-                    String::new()
+                    (String::new(), String::new())
                 }
             } else {
-                String::new()
+                (String::new(), String::new())
             }
         }
-        Err(_) => String::new(),
+        Err(_) => (String::new(), String::new()),
     };
+
+    if !reasoning_trace.is_empty() {
+        steps.push(serde_json::json!({
+            "type": "thought",
+            "title": "大模型原生深度思考链 (Deep Thinking Trace)",
+            "detail": reasoning_trace
+        }));
+    }
 
     let final_report = if !report_content.is_empty() {
         report_content
@@ -1610,6 +1727,7 @@ async fn main() {
         .route("/export-save", post(export_save_handler))
         .route("/sobko/search", post(sobko_search_handler))
         .route("/agent/chat", post(agent_chat_handler))
+        .route("/agent/models", post(agent_models_handler))
         .route("/execute-raw", post(execute_raw_handler))
         .route("/download", get(download_handler));
 
