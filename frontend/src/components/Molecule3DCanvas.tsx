@@ -11,6 +11,7 @@ import {
   Layers,
   Maximize2,
   Minimize2,
+  Move,
   RotateCw,
   Ruler,
   Tag,
@@ -120,17 +121,21 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
 
   // Rotation control mode: trackball (unconstrained 360° tumbling with no polar lock) vs orbit
   const [controlMode, setControlMode] = useState<'trackball' | 'orbit'>('trackball');
+  const [dragAction, setDragAction] = useState<'rotate' | 'pan'>('rotate');
 
   const [style, setStyle] = useState<RenderStyle>('ball-stick');
   const [autoRotate, setAutoRotate] = useState(false);
+  const autoRotateRef = useRef(false);
+  autoRotateRef.current = autoRotate;
+
   const [showLabels, setShowLabels] = useState(true);
   const [colorByCharge, setColorByCharge] = useState(false);
   const [showIso, setShowIso] = useState(true);
   const [isoWireframe, setIsoWireframe] = useState(false);
   const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
-  const [labelOverlays, setLabelOverlays] = useState<
-    { index: number; text: string; x: number; y: number; visible: boolean }[]
-  >([]);
+
+  const labelDomRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const labelItemsRef = useRef<{ index: number; x: number; y: number; z: number; text: string }[]>([]);
 
   // Keyboard shortcut listener: F to toggle Fullscreen, Escape to exit
   useEffect(() => {
@@ -291,7 +296,8 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     el.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
-    const initControls = (mode: 'trackball' | 'orbit') => {
+    const initControls = (mode: 'trackball' | 'orbit', action: 'rotate' | 'pan') => {
+      const prevTarget = controlsRef.current?.target ? controlsRef.current.target.clone() : new THREE.Vector3(0, 0, 0);
       if (controlsRef.current) {
         controlsRef.current.dispose();
         controlsRef.current = null;
@@ -300,11 +306,17 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
         const tb = new TrackballControls(camera, renderer.domElement);
         tb.rotateSpeed = 2.4;
         tb.zoomSpeed = 1.2;
-        tb.panSpeed = 0.8;
+        tb.panSpeed = 1.0;
         tb.noZoom = false;
         tb.noPan = false;
         tb.staticMoving = false;
         tb.dynamicDampingFactor = 0.16;
+        tb.mouseButtons =
+          action === 'pan'
+            ? { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE }
+            : { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+        tb.target.copy(prevTarget);
+        tb.handleResize();
         controlsRef.current = tb;
       } else {
         const ob = new OrbitControls(camera, renderer.domElement);
@@ -312,10 +324,17 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
         ob.dampingFactor = 0.08;
         ob.rotateSpeed = 0.78;
         ob.zoomSpeed = 0.95;
+        ob.enablePan = true;
+        ob.screenSpacePanning = true;
+        ob.mouseButtons =
+          action === 'pan'
+            ? { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE }
+            : { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+        ob.target.copy(prevTarget);
         controlsRef.current = ob;
       }
     };
-    initControls(controlMode);
+    initControls(controlMode, dragAction);
 
     // Studio three-point lighting
     const ambient = new THREE.AmbientLight(0xdbeafe, 0.75);
@@ -345,14 +364,44 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     ro.observe(el);
 
     let rafId = 0;
+    const projVec = new THREE.Vector3();
     const animate = () => {
       rafId = requestAnimationFrame(animate);
-      if (autoRotate && camera) {
-        camera.position.applyAxisAngle(new THREE.Vector3(0, 1, 0), 0.012);
-        camera.lookAt(0, 0, 0);
+      const ctrl = controlsRef.current;
+      if (autoRotateRef.current && camera && ctrl) {
+        const offset = camera.position.clone().sub(ctrl.target);
+        offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), 0.01);
+        camera.position.copy(ctrl.target).add(offset);
+        camera.lookAt(ctrl.target);
       }
-      controlsRef.current?.update();
+      ctrl?.update();
       renderer.render(scene, camera);
+
+      // Zero-lag synchronous DOM label projection in the exact same frame
+      const items = labelItemsRef.current;
+      if (items.length > 0 && containerRef.current) {
+        const w = containerRef.current.clientWidth;
+        const h = containerRef.current.clientHeight;
+        if (w > 0 && h > 0) {
+          camera.updateMatrixWorld();
+          const center = centerOffsetRef.current;
+          for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            const dom = labelDomRefs.current.get(item.index);
+            if (!dom) continue;
+            projVec.set(item.x - center.x, item.y - center.y, item.z - center.z).project(camera);
+            const sx = (projVec.x * 0.5 + 0.5) * w;
+            const sy = (-projVec.y * 0.5 + 0.5) * h - 14;
+            const visible = projVec.z < 1 && sx >= 8 && sx <= w - 8 && sy >= 8 && sy <= h - 8;
+            if (visible) {
+              dom.style.visibility = 'visible';
+              dom.style.transform = `translate3d(${sx.toFixed(1)}px, ${sy.toFixed(1)}px, 0) translate(-50%, -50%)`;
+            } else {
+              dom.style.visibility = 'hidden';
+            }
+          }
+        }
+      }
     };
     animate();
 
@@ -367,11 +416,12 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     };
   }, []);
 
-  // Switch between Trackball (free unconstrained 3D tumbling) and OrbitControls
+  // Switch between Trackball/Orbit and Rotate/Pan mouse bindings without losing camera target
   useEffect(() => {
     const cam = cameraRef.current;
     const ren = rendererRef.current;
     if (!cam || !ren) return;
+    const prevTarget = controlsRef.current?.target ? controlsRef.current.target.clone() : new THREE.Vector3(0, 0, 0);
     if (controlsRef.current) {
       controlsRef.current.dispose();
       controlsRef.current = null;
@@ -380,11 +430,17 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
       const tb = new TrackballControls(cam, ren.domElement);
       tb.rotateSpeed = 2.4;
       tb.zoomSpeed = 1.2;
-      tb.panSpeed = 0.8;
+      tb.panSpeed = 1.0;
       tb.noZoom = false;
       tb.noPan = false;
       tb.staticMoving = false;
       tb.dynamicDampingFactor = 0.16;
+      tb.mouseButtons =
+        dragAction === 'pan'
+          ? { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE }
+          : { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+      tb.target.copy(prevTarget);
+      tb.handleResize();
       controlsRef.current = tb;
     } else {
       const ob = new OrbitControls(cam, ren.domElement);
@@ -392,9 +448,16 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
       ob.dampingFactor = 0.08;
       ob.rotateSpeed = 0.78;
       ob.zoomSpeed = 0.95;
+      ob.enablePan = true;
+      ob.screenSpacePanning = true;
+      ob.mouseButtons =
+        dragAction === 'pan'
+          ? { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE }
+          : { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+      ob.target.copy(prevTarget);
       controlsRef.current = ob;
     }
-  }, [controlMode]);
+  }, [controlMode, dragAction]);
 
   // Populate / update geometry when molecule, style, charges, or isosurface changes
   useEffect(() => {
@@ -613,69 +676,22 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     criticalPoints,
   ]);
 
-  // Project 2D screen overlays only when camera moves, atoms change, or container resizes
-  useEffect(() => {
-    if (!showLabels || atoms.length === 0) {
-      setLabelOverlays([]);
-      return;
-    }
-
-    let pendingRaf = 0;
-    let lastSignature = '';
-
-    const computeAndSet = () => {
-      pendingRaf = 0;
-      const el = containerRef.current;
-      const cam = cameraRef.current;
-      if (!el || !cam) return;
-      const w = el.clientWidth;
-      const h = el.clientHeight;
-      if (w <= 0 || h <= 0) return;
-
-      cam.updateMatrixWorld();
-      const center = centerOffsetRef.current;
-      const next = atoms
-        .filter((a) => atoms.length <= 45 || (a.symbol !== 'H' && atoms.length <= 90))
-        .map((a) => {
-        const v = new THREE.Vector3(a.x - center.x, a.y - center.y, a.z - center.z);
-        v.project(cam);
-        const x = Math.round((v.x * 0.5 + 0.5) * w);
-        const y = Math.round((-v.y * 0.5 + 0.5) * h);
-        const visible = v.z < 1 && x >= 12 && x <= w - 12 && y >= 12 && y <= h - 12;
+  // Compute static label metadata only when atoms/labels/charges change;
+  // actual 2D screen positions are updated synchronously inside the WebGL animate() loop (0-frame lag).
+  const labelItems = useMemo(() => {
+    if (!showLabels || atoms.length === 0) return [];
+    return atoms
+      .filter((a) => atoms.length <= 45 || (a.symbol !== 'H' && atoms.length <= 90))
+      .map((a) => {
         const q = chargeMap.get(a.index);
         const text =
           colorByCharge && q !== undefined
             ? `${a.symbol}${a.index} (${q >= 0 ? '+' : ''}${q.toFixed(2)})`
             : `${a.symbol}${a.index}`;
-        return { index: a.index, text, x, y, visible };
+        return { index: a.index, x: a.x, y: a.y, z: a.z, text };
       });
-
-      const sig = next
-        .map((n) => `${n.index}:${n.x},${n.y},${n.visible ? 1 : 0}:${n.text}`)
-        .join('|');
-      if (sig !== lastSignature) {
-        lastSignature = sig;
-        setLabelOverlays(next);
-      }
-    };
-
-    const schedule = () => {
-      if (!pendingRaf) {
-        pendingRaf = requestAnimationFrame(computeAndSet);
-      }
-    };
-
-    computeAndSet();
-    const controls = controlsRef.current;
-    controls?.addEventListener('change', schedule);
-    window.addEventListener('resize', schedule);
-
-    return () => {
-      if (pendingRaf) cancelAnimationFrame(pendingRaf);
-      controls?.removeEventListener('change', schedule);
-      window.removeEventListener('resize', schedule);
-    };
-  }, [showLabels, atoms, colorByCharge, chargeMap, isosurface, style]);
+  }, [showLabels, atoms, colorByCharge, chargeMap]);
+  labelItemsRef.current = labelItems;
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const el = containerRef.current;
@@ -886,6 +902,24 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
             </button>
           </Tooltip>
 
+          <Tooltip
+            content="切换左键拖拽行为：默认左键旋转/右键平移；开启「左键平移」后可直接左键拖移分子位置（适合触控板）"
+            title="左键移动/平移"
+            position="bottom"
+          >
+            <button
+              onClick={() => setDragAction((a) => (a === 'rotate' ? 'pan' : 'rotate'))}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer ${
+                dragAction === 'pan'
+                  ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-400/40 shadow-sm'
+                  : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200'
+              }`}
+            >
+              <Move className="w-3.5 h-3.5" />
+              <span>{dragAction === 'pan' ? '平移中' : '平移'}</span>
+            </button>
+          </Tooltip>
+
           {/* Quick height presets */}
           {!isMaximized && resizable && (
             <div className="hidden sm:flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-[10px] font-mono">
@@ -962,7 +996,8 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
         <div
           ref={containerRef}
           onClick={handleCanvasClick}
-          className="w-full h-full cursor-grab active:cursor-grabbing"
+          onContextMenu={(e) => e.preventDefault()}
+          className={`w-full h-full ${dragAction === 'pan' ? 'cursor-move' : 'cursor-grab active:cursor-grabbing'}`}
         />
 
         {/* Floating Scientific BGR Colorbar (for mapped NCI / IGMH) */}
@@ -1014,20 +1049,21 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
           </div>
         )}
 
-        {/* Projected Atom Labels */}
+        {/* Projected Atom Labels (0-frame lag synchronous DOM transform) */}
         {showLabels &&
-          labelOverlays.map(
-            (lbl) =>
-              lbl.visible && (
-                <div
-                  key={lbl.index}
-                  className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded bg-slate-950/75 border border-slate-700/60 text-[10px] font-mono text-slate-200 shadow"
-                  style={{ left: lbl.x, top: lbl.y - 16 }}
-                >
-                  {lbl.text}
-                </div>
-              )
-          )}
+          labelItems.map((lbl) => (
+            <div
+              key={lbl.index}
+              ref={(el) => {
+                if (el) labelDomRefs.current.set(lbl.index, el);
+                else labelDomRefs.current.delete(lbl.index);
+              }}
+              className="pointer-events-none absolute left-0 top-0 px-1.5 py-0.5 rounded bg-slate-950/75 border border-slate-700/60 text-[10px] font-mono text-slate-200 shadow will-change-transform"
+              style={{ visibility: 'hidden' }}
+            >
+              {lbl.text}
+            </div>
+          ))}
 
         {/* Empty State */}
         {atoms.length === 0 && (
