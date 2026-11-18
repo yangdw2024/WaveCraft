@@ -2,8 +2,10 @@ import React from 'react';
 import {
   Activity,
   Atom,
+  Bot,
   Box,
   Compass,
+  DownloadCloud,
   FolderKanban,
   GitMerge,
   Layers,
@@ -33,6 +35,8 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'dos', label: 'DOS 态密度', sublabel: 'TDOS · HOMO/LUMO', icon: Activity },
   { id: 'spectrum', label: '光谱分析', sublabel: 'IR · Raman · UV-Vis', icon: Waves },
   { id: 'weak-interaction', label: '弱相互作用', sublabel: 'NCI · IGM · DORI', icon: Sparkles },
+  { id: 'ai-agent', label: 'AI 量子智能体', sublabel: '文献复刻 · 自动报告', icon: Bot, badge: 'AI' },
+  { id: 'export-hub', label: '导出与归档', sublabel: '同目录导出 · OBJ · 报告', icon: DownloadCloud },
   { id: 'advanced', label: '高级量子工具', sublabel: 'AIM · 芳香性 · 格式导出', icon: GitMerge },
   { id: 'menu-explorer', label: '全功能菜单', sublabel: 'Multiwfn 指令控制台', icon: Terminal },
 ];

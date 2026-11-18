@@ -31,9 +31,23 @@ import {
   AdvancedToolsWorkspace,
   FunctionMenuWorkspace,
 } from './workspaces/AdvancedAndMenuWorkspaces';
+import { AiAgentWorkspace } from './workspaces/AiAgentWorkspace';
+import { ExportHubWorkspace } from './workspaces/ExportHubWorkspace';
 
 export function App() {
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceId>('file-hub');
+  const [visitedWorkspaces, setVisitedWorkspaces] = useState<Set<WorkspaceId>>(
+    () => new Set<WorkspaceId>(['file-hub', 'weak-interaction'])
+  );
+
+  useEffect(() => {
+    setVisitedWorkspaces((prev) => {
+      if (prev.has(activeWorkspace)) return prev;
+      const next = new Set(prev);
+      next.add(activeWorkspace);
+      return next;
+    });
+  }, [activeWorkspace]);
   const [health, setHealth] = useState<HealthInfo | null>(null);
   const [config, setConfig] = useState<WaveCraftConfig | null>(null);
   const [examples, setExamples] = useState<ExampleFileInfo[]>([]);
@@ -183,71 +197,105 @@ export function App() {
             </div>
           )}
 
-          {activeWorkspace === 'file-hub' && (
-            <FileHubWorkspace
-              health={health}
-              config={config}
-              examples={examples}
-              inspection={inspection}
-              loading={loading}
-              onSelectFile={loadFile}
-              onUploadFile={handleUploadFile}
-              onSaveConfig={handleSaveConfig}
-            />
+          {visitedWorkspaces.has('file-hub') && (
+            <div style={{ display: activeWorkspace === 'file-hub' ? 'block' : 'none' }}>
+              <FileHubWorkspace
+                health={health}
+                config={config}
+                examples={examples}
+                inspection={inspection}
+                loading={loading}
+                onSelectFile={loadFile}
+                onUploadFile={handleUploadFile}
+                onSaveConfig={handleSaveConfig}
+              />
+            </div>
           )}
 
-          {activeWorkspace === 'structure-orbital' && (
-            <StructureOrbitalWorkspace inspection={inspection} />
+          {visitedWorkspaces.has('structure-orbital') && (
+            <div style={{ display: activeWorkspace === 'structure-orbital' ? 'block' : 'none' }}>
+              <StructureOrbitalWorkspace inspection={inspection} />
+            </div>
           )}
 
-          {activeWorkspace === 'realspace' && (
-            <RealSpaceWorkspace
-              inspection={inspection}
-              functions={realspaceFunctions}
-            />
+          {visitedWorkspaces.has('realspace') && (
+            <div style={{ display: activeWorkspace === 'realspace' ? 'block' : 'none' }}>
+              <RealSpaceWorkspace
+                inspection={inspection}
+                functions={realspaceFunctions}
+              />
+            </div>
           )}
 
-          {activeWorkspace === 'charges' && (
-            <ChargeAnalysisWorkspace inspection={inspection} />
+          {visitedWorkspaces.has('charges') && (
+            <div style={{ display: activeWorkspace === 'charges' ? 'block' : 'none' }}>
+              <ChargeAnalysisWorkspace inspection={inspection} />
+            </div>
           )}
 
-          {activeWorkspace === 'bonds' && (
-            <BondOrderWorkspace inspection={inspection} />
+          {visitedWorkspaces.has('bonds') && (
+            <div style={{ display: activeWorkspace === 'bonds' ? 'block' : 'none' }}>
+              <BondOrderWorkspace inspection={inspection} />
+            </div>
           )}
 
-          {activeWorkspace === 'orbitals' && (
-            <OrbitalAnalysisWorkspace inspection={inspection} />
+          {visitedWorkspaces.has('orbitals') && (
+            <div style={{ display: activeWorkspace === 'orbitals' ? 'block' : 'none' }}>
+              <OrbitalAnalysisWorkspace inspection={inspection} />
+            </div>
           )}
 
-          {activeWorkspace === 'dos' && (
-            <DosWorkspace inspection={inspection} />
+          {visitedWorkspaces.has('dos') && (
+            <div style={{ display: activeWorkspace === 'dos' ? 'block' : 'none' }}>
+              <DosWorkspace inspection={inspection} />
+            </div>
           )}
 
-          {activeWorkspace === 'spectrum' && (
-            <SpectrumWorkspace
-              inspection={inspection}
-              examples={examples}
-              onSelectFile={loadFile}
-            />
+          {visitedWorkspaces.has('spectrum') && (
+            <div style={{ display: activeWorkspace === 'spectrum' ? 'block' : 'none' }}>
+              <SpectrumWorkspace
+                inspection={inspection}
+                examples={examples}
+                onSelectFile={loadFile}
+              />
+            </div>
           )}
 
-          {activeWorkspace === 'weak-interaction' && (
-            <WeakInteractionWorkspace inspection={inspection} />
+          {visitedWorkspaces.has('weak-interaction') && (
+            <div style={{ display: activeWorkspace === 'weak-interaction' ? 'block' : 'none' }}>
+              <WeakInteractionWorkspace inspection={inspection} />
+            </div>
           )}
 
-          {activeWorkspace === 'advanced' && (
-            <AdvancedToolsWorkspace inspection={inspection} />
+          {visitedWorkspaces.has('ai-agent') && (
+            <div style={{ display: activeWorkspace === 'ai-agent' ? 'block' : 'none' }}>
+              <AiAgentWorkspace inspection={inspection} />
+            </div>
           )}
 
-          {activeWorkspace === 'menu-explorer' && (
-            <FunctionMenuWorkspace
-              inspection={inspection}
-              categories={categories}
-              tasks={tasks}
-              selectedTemplate={selectedMenuTemplate}
-              onSelectTemplate={setSelectedMenuTemplate}
-              onRefreshTasks={refreshTasks}
-            />
+          {visitedWorkspaces.has('export-hub') && (
+            <div style={{ display: activeWorkspace === 'export-hub' ? 'block' : 'none' }}>
+              <ExportHubWorkspace inspection={inspection} />
+            </div>
+          )}
+
+          {visitedWorkspaces.has('advanced') && (
+            <div style={{ display: activeWorkspace === 'advanced' ? 'block' : 'none' }}>
+              <AdvancedToolsWorkspace inspection={inspection} />
+            </div>
+          )}
+
+          {visitedWorkspaces.has('menu-explorer') && (
+            <div style={{ display: activeWorkspace === 'menu-explorer' ? 'block' : 'none' }}>
+              <FunctionMenuWorkspace
+                inspection={inspection}
+                categories={categories}
+                tasks={tasks}
+                selectedTemplate={selectedMenuTemplate}
+                onSelectTemplate={setSelectedMenuTemplate}
+                onRefreshTasks={refreshTasks}
+              />
+            </div>
           )}
         </main>
       </div>

@@ -9,7 +9,9 @@ export type WorkspaceId =
   | 'spectrum'
   | 'weak-interaction'
   | 'advanced'
-  | 'menu-explorer';
+  | 'menu-explorer'
+  | 'ai-agent'
+  | 'export-hub';
 
 export interface HealthInfo {
   status: string;

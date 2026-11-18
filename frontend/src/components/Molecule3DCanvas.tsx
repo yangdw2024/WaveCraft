@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { TrackballControls } from 'three/examples/jsm/controls/TrackballControls.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import {
   Camera,
@@ -98,7 +99,7 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const controlsRef = useRef<OrbitControls | null>(null);
+  const controlsRef = useRef<any>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const atomMeshesRef = useRef<THREE.Mesh[]>([]);
   const centerOffsetRef = useRef<THREE.Vector3>(new THREE.Vector3());
@@ -115,6 +116,9 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
   const [isDraggingHeight, setIsDraggingHeight] = useState(false);
   const dragStartYRef = useRef(0);
   const dragStartHeightRef = useRef(0);
+
+  // Rotation control mode: trackball (unconstrained 360° tumbling with no polar lock) vs orbit
+  const [controlMode, setControlMode] = useState<'trackball' | 'orbit'>('trackball');
 
   const [style, setStyle] = useState<RenderStyle>('ball-stick');
   const [autoRotate, setAutoRotate] = useState(false);
@@ -272,12 +276,31 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     el.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.08;
-    controls.rotateSpeed = 0.78;
-    controls.zoomSpeed = 0.95;
-    controlsRef.current = controls;
+    const initControls = (mode: 'trackball' | 'orbit') => {
+      if (controlsRef.current) {
+        controlsRef.current.dispose();
+        controlsRef.current = null;
+      }
+      if (mode === 'trackball') {
+        const tb = new TrackballControls(camera, renderer.domElement);
+        tb.rotateSpeed = 2.4;
+        tb.zoomSpeed = 1.2;
+        tb.panSpeed = 0.8;
+        tb.noZoom = false;
+        tb.noPan = false;
+        tb.staticMoving = false;
+        tb.dynamicDampingFactor = 0.16;
+        controlsRef.current = tb;
+      } else {
+        const ob = new OrbitControls(camera, renderer.domElement);
+        ob.enableDamping = true;
+        ob.dampingFactor = 0.08;
+        ob.rotateSpeed = 0.78;
+        ob.zoomSpeed = 0.95;
+        controlsRef.current = ob;
+      }
+    };
+    initControls(controlMode);
 
     // Studio three-point lighting
     const ambient = new THREE.AmbientLight(0xdbeafe, 0.75);
@@ -302,13 +325,18 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
       cameraRef.current.aspect = w / h;
       cameraRef.current.updateProjectionMatrix();
       rendererRef.current.setSize(w, h);
+      controlsRef.current?.handleResize?.();
     });
     ro.observe(el);
 
     let rafId = 0;
     const animate = () => {
       rafId = requestAnimationFrame(animate);
-      controls.update();
+      if (autoRotate && camera) {
+        camera.position.applyAxisAngle(new THREE.Vector3(0, 1, 0), 0.012);
+        camera.lookAt(0, 0, 0);
+      }
+      controlsRef.current?.update();
       renderer.render(scene, camera);
     };
     animate();
@@ -316,20 +344,42 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     return () => {
       cancelAnimationFrame(rafId);
       ro.disconnect();
-      controls.dispose();
+      controlsRef.current?.dispose();
       renderer.dispose();
       rendererRef.current = null;
       sceneRef.current = null;
+      controlsRef.current = null;
     };
   }, []);
 
-  // Update autoRotate flag
+  // Switch between Trackball (free unconstrained 3D tumbling) and OrbitControls
   useEffect(() => {
+    const cam = cameraRef.current;
+    const ren = rendererRef.current;
+    if (!cam || !ren) return;
     if (controlsRef.current) {
-      controlsRef.current.autoRotate = autoRotate;
-      controlsRef.current.autoRotateSpeed = 1.6;
+      controlsRef.current.dispose();
+      controlsRef.current = null;
     }
-  }, [autoRotate]);
+    if (controlMode === 'trackball') {
+      const tb = new TrackballControls(cam, ren.domElement);
+      tb.rotateSpeed = 2.4;
+      tb.zoomSpeed = 1.2;
+      tb.panSpeed = 0.8;
+      tb.noZoom = false;
+      tb.noPan = false;
+      tb.staticMoving = false;
+      tb.dynamicDampingFactor = 0.16;
+      controlsRef.current = tb;
+    } else {
+      const ob = new OrbitControls(cam, ren.domElement);
+      ob.enableDamping = true;
+      ob.dampingFactor = 0.08;
+      ob.rotateSpeed = 0.78;
+      ob.zoomSpeed = 0.95;
+      controlsRef.current = ob;
+    }
+  }, [controlMode]);
 
   // Populate / update geometry when molecule, style, charges, or isosurface changes
   useEffect(() => {
@@ -786,6 +836,19 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
             title="自动旋转"
           >
             <RotateCw className={`w-3.5 h-3.5 ${autoRotate ? 'animate-spin' : ''}`} />
+          </button>
+
+          <button
+            onClick={() => setControlMode((m) => (m === 'trackball' ? 'orbit' : 'trackball'))}
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer ${
+              controlMode === 'trackball'
+                ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-400/40 shadow-sm'
+                : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200'
+            }`}
+            title="切换旋转模式：轨迹球翻转(支持全向360°无死角上下连续翻转，彻底解决触墙死角) / 经典轨道"
+          >
+            <Compass className="w-3.5 h-3.5" />
+            <span>{controlMode === 'trackball' ? '轨迹球翻转' : '环绕轨道'}</span>
           </button>
 
           {/* Quick height presets */}

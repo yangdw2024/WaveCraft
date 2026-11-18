@@ -367,5 +367,66 @@ export const api = {
       body: JSON.stringify({ file_path, commands, task_name }),
     }),
 
+  exportSave: (params: {
+    file_path: string;
+    target_dir?: string;
+    task_id?: string;
+    points?: NciPoint[];
+    mesh?: any;
+    report_markdown?: string;
+    export_csv?: boolean;
+    export_obj?: boolean;
+    export_cubes?: boolean;
+    export_report?: boolean;
+    export_log?: boolean;
+    log_content?: string;
+  }) =>
+    reqJson<{
+      ok: boolean;
+      target_dir: string;
+      files_written: string[];
+      count: number;
+      message: string;
+    }>('/export-save', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
+
+  searchSobko: (query: string, top_k?: number) =>
+    reqJson<{
+      query: string;
+      count: number;
+      results: Array<{
+        chunk_id: string;
+        title: string;
+        text: string;
+        canonical_url?: string;
+      }>;
+    }>('/sobko/search', {
+      method: 'POST',
+      body: JSON.stringify({ query, top_k }),
+    }),
+
+  agentChat: (params: {
+    prompt: string;
+    file_path?: string;
+    api_url?: string;
+    api_key?: string;
+    model?: string;
+  }) =>
+    reqJson<{
+      answer: string;
+      report_markdown: string;
+      steps: Array<{
+        type: string;
+        title: string;
+        detail: string;
+      }>;
+      model_used: string;
+    }>('/agent/chat', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
+
   downloadUrl: (path: string) => `${BASE}/download?path=${encodeURIComponent(path)}`,
 };
