@@ -1,0 +1,39 @@
+{
+  "name": "@yangdw2024/wavecraft",
+  "version": "4.0.0",
+  "description": "WaveCraft v4.0: High-performance Rust + React/Three.js WebGL quantum chemistry wavefunction analysis workbench for Multiwfn 3.8",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "bin": {
+    "wavecraft": "bin/wavecraft.js"
+  },
+  "files": [
+    "bin/",
+    "index.js",
+    "index.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "quantum-chemistry",
+    "multiwfn",
+    "wavefunction",
+    "threejs",
+    "rust",
+    "chemistry",
+    "gui"
+  ],
+  "author": "WaveCraft Team <yangdw2021@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yangdw2024/WaveCraft.git"
+  },
+  "homepage": "https://github.com/yangdw2024/WaveCraft#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

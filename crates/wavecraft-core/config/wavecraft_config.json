@@ -1,0 +1,11 @@
+{
+  "multiwfn_path": "D:\\Multiwfn\\Multiwfn_3.8_bin_Win64\\Multiwfn.exe",
+  "examples_dir": "\\\\?\\D:\\Multiwfn\\Multiwfn_3.8_bin_Win64\\examples",
+  "default_threads": 8,
+  "work_dir_root": "D:\\Multiwfn\\WaveCraft_GUI\\crates\\wavecraft-core\\workspace_runs",
+  "recent_files": [
+    "D:\\Multiwfn\\Multiwfn_3.8_bin_Win64\\examples\\CH3Cl.fchk"
+  ],
+  "theme": "quantum-obsidian",
+  "language": "zh-CN"
+}

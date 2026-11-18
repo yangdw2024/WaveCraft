@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/wavecraft-core",
+    "crates/wavecraft-app",
+]
+
+[workspace.package]
+version = "4.0.0"
+edition = "2021"
+authors = ["WaveCraft Team"]
+license = "MIT"

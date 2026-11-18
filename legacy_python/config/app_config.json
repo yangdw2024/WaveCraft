@@ -1,0 +1,8 @@
+{
+  "multiwfn": {
+    "exe_path": "D:\\Multiwfn\\Multiwfn_3.8_bin_Win64\\Multiwfn.exe"
+  },
+  "test": {
+    "key": "test.value"
+  }
+}

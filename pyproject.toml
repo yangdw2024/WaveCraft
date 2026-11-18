@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wavecraft-gui"
+version = "4.0.0"
+description = "WaveCraft v4.0: High-performance Rust + React/Three.js WebGL quantum chemistry wavefunction analysis workbench for Multiwfn 3.8"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+authors = [
+    { name = "WaveCraft Team", email = "yangdw2021@gmail.com" }
+]
+keywords = ["quantum-chemistry", "multiwfn", "wavefunction", "visualization", "threejs", "rust"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+
+[project.urls]
+Homepage = "https://github.com/yangdw2024/WaveCraft"
+Repository = "https://github.com/yangdw2024/WaveCraft"
+
+[project.scripts]
+wavecraft = "wavecraft_gui.cli:main"
+wavecraft-gui = "wavecraft_gui.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["wavecraft_gui*"]
+
+[tool.setuptools.package-data]
+wavecraft_gui = ["assets/**/*", "assets/*"]

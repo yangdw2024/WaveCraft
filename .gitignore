@@ -1,0 +1,26 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Node / Frontend
+frontend/node_modules/
+frontend/.vite/
+
+# Python / Packaging
+dist_pypi/
+build/
+*.egg-info/
+__pycache__/
+*.pyc
+.pytest_cache/
+wavecraft_gui/assets/
+
+# Runtime & Legacy Artifacts
+workspace_runs/
+config/wavecraft_config.json
+legacy_python/build/
+legacy_python/logs/
+legacy_python/WaveCraft.egg-info/
+legacy_python/__pycache__/
+legacy_python/.cache/
+*.log
