@@ -1,4 +1,5 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 export interface TooltipProps {
   content: React.ReactNode;
@@ -15,16 +16,43 @@ export const Tooltip: React.FC<TooltipProps> = ({
   title,
   shortcut,
   position = 'top',
-  delayMs = 120,
+  delayMs = 100,
   children,
   className = '',
 }) => {
   const [visible, setVisible] = useState(false);
+  const [coords, setCoords] = useState<{
+    top: number;
+    left: number;
+    placement: 'top' | 'bottom';
+  } | null>(null);
+
+  const triggerRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
+
+  const updatePosition = () => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    
+    // Automatically flip to bottom if too close to top of viewport
+    const preferBottom = position === 'bottom' || rect.top < 85;
+    const top = preferBottom ? rect.bottom + 8 : rect.top - 8;
+
+    // Horizontally center over trigger, clamping to viewport margins (8px - window width)
+    let left = rect.left + rect.width / 2;
+    left = Math.max(140, Math.min(window.innerWidth - 140, left));
+
+    setCoords({
+      top,
+      left,
+      placement: preferBottom ? 'bottom' : 'top',
+    });
+  };
 
   const showTooltip = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = window.setTimeout(() => {
+      updatePosition();
       setVisible(true);
     }, delayMs);
   };
@@ -34,22 +62,21 @@ export const Tooltip: React.FC<TooltipProps> = ({
     setVisible(false);
   };
 
-  const positionClasses = {
-    top: 'bottom-full left-1/2 -translate-x-1/2 mb-2',
-    bottom: 'top-full left-1/2 -translate-x-1/2 mt-2',
-    left: 'right-full top-1/2 -translate-y-1/2 mr-2',
-    right: 'left-full top-1/2 -translate-y-1/2 ml-2',
-  }[position];
-
-  const arrowClasses = {
-    top: 'top-full left-1/2 -translate-x-1/2 border-t-slate-800 border-l-transparent border-r-transparent border-b-transparent',
-    bottom: 'bottom-full left-1/2 -translate-x-1/2 border-b-slate-800 border-l-transparent border-r-transparent border-t-transparent',
-    left: 'left-full top-1/2 -translate-y-1/2 border-l-slate-800 border-t-transparent border-b-transparent border-r-transparent',
-    right: 'right-full top-1/2 -translate-y-1/2 border-r-slate-800 border-t-transparent border-b-transparent border-l-transparent',
-  }[position];
+  useEffect(() => {
+    if (visible) {
+      const handleScrollOrResize = () => updatePosition();
+      window.addEventListener('scroll', handleScrollOrResize, true);
+      window.addEventListener('resize', handleScrollOrResize);
+      return () => {
+        window.removeEventListener('scroll', handleScrollOrResize, true);
+        window.removeEventListener('resize', handleScrollOrResize);
+      };
+    }
+  }, [visible]);
 
   return (
     <div
+      ref={triggerRef}
       className={`relative inline-flex items-center ${className}`}
       onMouseEnter={showTooltip}
       onMouseLeave={hideTooltip}
@@ -57,38 +84,56 @@ export const Tooltip: React.FC<TooltipProps> = ({
       onBlur={hideTooltip}
     >
       {children}
-      {visible && (
-        <div
-          className={`absolute z-50 pointer-events-none transition-all duration-150 transform scale-100 opacity-100 w-max max-w-xs ${positionClasses}`}
-        >
-          <div className="bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-xl px-2.5 py-1.5 shadow-2xl shadow-black/60 text-left">
-            {title && (
-              <div className="text-[11px] font-bold text-sky-300 flex items-center justify-between gap-2 mb-0.5">
-                <span className="whitespace-nowrap">{title}</span>
-                {shortcut && (
-                  <span className="px-1 py-0.2 rounded bg-slate-800 text-slate-300 font-mono text-[9px] border border-slate-700 whitespace-nowrap">
+      {visible &&
+        coords &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              top: coords.top,
+              left: coords.left,
+              transform: coords.placement === 'top' ? 'translate(-50%, -100%)' : 'translate(-50%, 0)',
+              zIndex: 99999,
+            }}
+            className="pointer-events-none transition-opacity duration-150 animate-in fade-in zoom-in-95 duration-100 w-max max-w-sm"
+          >
+            <div className="bg-slate-900/98 backdrop-blur-xl border border-sky-500/40 rounded-xl px-3 py-2 shadow-[0_12px_40px_rgba(0,0,0,0.85)] text-left text-xs">
+              {title && (
+                <div className="text-[11px] font-bold text-sky-300 flex items-center justify-between gap-3 mb-1 border-b border-slate-800/80 pb-0.5">
+                  <span className="whitespace-nowrap">{title}</span>
+                  {shortcut && (
+                    <span className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 font-mono text-[9px] border border-slate-700 whitespace-nowrap">
+                      {shortcut}
+                    </span>
+                  )}
+                </div>
+              )}
+              <div className="text-[11px] text-slate-200 leading-normal">
+                {content}
+              </div>
+              {!title && shortcut && (
+                <div className="mt-1 flex justify-end">
+                  <span className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 font-mono text-[9px] border border-slate-700 whitespace-nowrap">
                     {shortcut}
                   </span>
-                )}
-              </div>
-            )}
-            <div className="text-[11px] text-slate-200 leading-tight">
-              {content}
+                </div>
+              )}
             </div>
-            {!title && shortcut && (
-              <div className="mt-1 flex justify-end">
-                <span className="px-1 py-0.2 rounded bg-slate-800 text-slate-400 font-mono text-[9px] border border-slate-700 whitespace-nowrap">
-                  {shortcut}
-                </span>
-              </div>
-            )}
-          </div>
-          {/* Arrow */}
-          <div
-            className={`absolute w-0 h-0 border-4 ${arrowClasses}`}
-          />
-        </div>
-      )}
+            {/* Small Pointer Triangle */}
+            <div
+              style={{
+                left: '50%',
+                transform: 'translateX(-50%)',
+              }}
+              className={`absolute w-0 h-0 border-4 ${
+                coords.placement === 'top'
+                  ? 'top-full border-t-sky-500/40 border-l-transparent border-r-transparent border-b-transparent'
+                  : 'bottom-full border-b-sky-500/40 border-l-transparent border-r-transparent border-t-transparent'
+              }`}
+            />
+          </div>,
+          document.body
+        )}
     </div>
   );
 };

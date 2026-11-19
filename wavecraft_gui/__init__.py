@@ -1,4 +1,4 @@
 """WaveCraft v4.0 Python Launcher & Package Entry."""
 
-__version__ = "4.0.6"
+__version__ = "4.0.7"
 __all__ = ["__version__"]

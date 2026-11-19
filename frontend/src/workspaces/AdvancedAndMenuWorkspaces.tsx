@@ -38,6 +38,7 @@ import type {
 } from '../types/quantum';
 import { Molecule3DCanvas } from '../components/Molecule3DCanvas';
 import { ExportToolbar } from '../components/ExportToolbar';
+import { ExpandableConsole } from '../components/ExpandableConsole';
 import { Tooltip } from '../components/Tooltip';
 
 export const AdvancedToolsWorkspace: React.FC<{
@@ -380,10 +381,13 @@ export const AdvancedToolsWorkspace: React.FC<{
           </div>
 
           <div className="glass-panel rounded-2xl p-4">
-            <h3 className="text-xs font-bold text-slate-300 mb-2">原始计算输出</h3>
-            <pre className="h-[155px] overflow-auto rounded-xl bg-slate-950 border border-slate-800 p-2.5 text-[11px] font-mono text-slate-400 whitespace-pre-wrap">
-              {stdout || '执行 AIM 或芳香性分析后，Multiwfn 终端输出将显示于此。'}
-            </pre>
+            <ExpandableConsole
+              title="原始计算输出"
+              content={stdout}
+              placeholder="执行 AIM 或芳香性分析后，Multiwfn 终端输出将显示于此。"
+              initialHeight={180}
+              onClear={() => setStdout('')}
+            />
           </div>
         </div>
       </div>
@@ -1180,9 +1184,13 @@ export const FunctionMenuWorkspace: React.FC<{
                   </Tooltip>
                 </div>
               </div>
-              <pre className="h-[195px] overflow-auto rounded-xl bg-slate-950 border border-slate-800 p-3 text-[11px] font-mono text-slate-300 whitespace-pre-wrap">
-                {stdout || '选择功能项并点击执行后，Multiwfn 实时输出将显示在此处...'}
-              </pre>
+              <ExpandableConsole
+                title="终端输出流"
+                content={stdout}
+                placeholder="选择功能项并点击执行后，Multiwfn 实时输出将显示在此处..."
+                initialHeight={240}
+                onClear={() => setStdout('')}
+              />
             </div>
           </div>
 

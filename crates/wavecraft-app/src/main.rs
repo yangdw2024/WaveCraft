@@ -1053,6 +1053,7 @@ async fn download_handler(Query(q): Query<DownloadQuery>) -> impl IntoResponse {
 struct ExportSaveReq {
     file_path: String,
     target_dir: Option<String>,
+    custom_filename: Option<String>,
     task_id: Option<String>,
     points: Option<Vec<wavecraft_core::parser::NciPoint>>,
     mesh: Option<wavecraft_core::cube::IsosurfaceMesh>,
@@ -1157,7 +1158,9 @@ async fn export_save_handler(
     // 3. Export Academic Markdown Report
     if req.export_report.unwrap_or(true) {
         if let Some(rpt) = &req.report_markdown {
-            let rpt_path = target_dir.join(format!("{base_stem}_analysis_report.md"));
+            let default_name = format!("{base_stem}_analysis_report.md");
+            let filename = req.custom_filename.as_deref().unwrap_or(&default_name);
+            let rpt_path = target_dir.join(filename);
             if std::fs::write(&rpt_path, rpt).is_ok() {
                 written.push(rpt_path.to_string_lossy().to_string());
             }

@@ -370,6 +370,7 @@ export const api = {
   exportSave: (params: {
     file_path: string;
     target_dir?: string;
+    custom_filename?: string;
     task_id?: string;
     points?: NciPoint[];
     mesh?: any;

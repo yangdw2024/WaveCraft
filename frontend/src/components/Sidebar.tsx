@@ -4,12 +4,16 @@ import {
   Atom,
   Bot,
   Box,
+  ChevronLeft,
+  ChevronRight,
   Compass,
   DownloadCloud,
   FolderKanban,
   GitMerge,
   Layers,
   Link2,
+  PanelLeftClose,
+  PanelLeftOpen,
   Sparkles,
   Server,
   Terminal,
@@ -48,6 +52,8 @@ interface SidebarProps {
   onSelect: (id: WorkspaceId) => void;
   runningTasksCount: number;
   totalTasksCount: number;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -55,13 +61,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelect,
   runningTasksCount,
   totalTasksCount,
+  collapsed = false,
+  onToggleCollapse,
 }) => {
   return (
-    <aside className="w-60 shrink-0 border-r border-slate-800/80 bg-[#080c14]/90 flex flex-col justify-between py-3 px-2.5 overflow-y-auto">
+    <aside
+      className={`shrink-0 border-r border-slate-800/80 bg-[#080c14]/95 flex flex-col justify-between py-3 overflow-y-auto transition-all duration-300 relative z-20 ${
+        collapsed
+          ? 'w-0 opacity-0 overflow-hidden p-0 border-r-0 pointer-events-none'
+          : 'w-60 px-2.5 opacity-100'
+      }`}
+    >
       <div className="space-y-1">
-        <div className="px-2.5 pb-1.5 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-          <span>分析工作台</span>
-          <Compass className="w-3.5 h-3.5 text-slate-600" />
+        <div className="px-2 pb-2 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-500 border-b border-slate-800/60 mb-1">
+          <span className="flex items-center gap-1.5 text-slate-400">
+            <Compass className="w-3.5 h-3.5 text-sky-400" />
+            <span>分析工作台</span>
+          </span>
+          {onToggleCollapse && (
+            <button
+              onClick={onToggleCollapse}
+              className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              title="完全折叠侧边栏 (Ctrl+B)"
+            >
+              <PanelLeftClose className="w-4 h-4" />
+            </button>
+          )}
         </div>
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;

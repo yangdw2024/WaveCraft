@@ -13,6 +13,7 @@ import type {
 } from './types/quantum';
 import { TopBar } from './components/TopBar';
 import { Sidebar } from './components/Sidebar';
+import { PanelLeftOpen } from 'lucide-react';
 import { CommandPalette } from './components/CommandPalette';
 import { FileHubWorkspace } from './workspaces/FileHubWorkspace';
 import { StructureOrbitalWorkspace } from './workspaces/StructureOrbitalWorkspace';
@@ -59,6 +60,7 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedMenuTemplate, setSelectedMenuTemplate] =
     useState<MenuFunctionTemplate | null>(null);
 
@@ -152,6 +154,10 @@ export function App() {
         e.preventDefault();
         setPaletteOpen((v) => !v);
       }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        setSidebarCollapsed((v) => !v);
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -165,7 +171,7 @@ export function App() {
   }, [activeWorkspace]);
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-[#06090f] text-slate-100 quantum-grid-bg overflow-hidden">
+    <div className="h-screen w-screen flex flex-col bg-[#06090f] text-slate-100 quantum-grid-bg overflow-hidden relative">
       <TopBar
         health={health}
         inspection={inspection}
@@ -177,15 +183,28 @@ export function App() {
         onJumpToFileHub={() => setActiveWorkspace('file-hub')}
       />
 
-      <div className="flex-1 flex min-h-0 overflow-hidden">
+      <div className="flex-1 flex min-h-0 overflow-hidden relative">
         <Sidebar
           active={activeWorkspace}
           onSelect={setActiveWorkspace}
           runningTasksCount={runningTasksCount}
           totalTasksCount={tasks.length}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
         />
 
-        <main ref={mainRef} className="flex-1 min-w-0 overflow-y-auto p-5">
+        {sidebarCollapsed && (
+          <button
+            onClick={() => setSidebarCollapsed(false)}
+            className="absolute left-3 top-3 z-30 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-sky-400/50 text-sky-200 shadow-2xl backdrop-blur-md flex items-center gap-1.5 text-xs font-semibold hover:bg-slate-800 transition cursor-pointer hover:border-sky-300 animate-in fade-in slide-in-from-left duration-200"
+            title="展开侧边导航 (Ctrl+B)"
+          >
+            <PanelLeftOpen className="w-4 h-4 text-sky-400" />
+            <span className="text-[11px]">展开导航</span>
+          </button>
+        )}
+
+        <main ref={mainRef} className="flex-1 min-w-0 overflow-y-auto p-5 transition-all">
           {globalError && (
             <div className="mb-4 px-4 py-3 rounded-xl bg-rose-500/10 border border-rose-500/35 text-xs text-rose-200 flex items-center justify-between">
               <span>{globalError}</span>

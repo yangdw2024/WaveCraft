@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
@@ -6,10 +6,13 @@ import {
   Download,
   Folder,
   FolderOpen,
+  GripHorizontal,
   HardDrive,
   Key,
   Layers,
   Loader2,
+  Maximize2,
+  Minimize2,
   Play,
   RefreshCw,
   Save,
@@ -22,6 +25,8 @@ import {
   Zap,
 } from 'lucide-react';
 import { api } from '../api/client';
+import { ExpandableConsole } from '../components/ExpandableConsole';
+import { Tooltip } from '../components/Tooltip';
 import type { MoleculeInspection, RemoteFileInfo, RemoteServerProfile } from '../types/quantum';
 
 interface LinuxServerWorkspaceProps {
@@ -98,6 +103,36 @@ export const LinuxServerWorkspace: React.FC<LinuxServerWorkspaceProps> = ({
   const [remoteCommands, setRemoteCommands] = useState<string>('0\n1\nq');
   const [runningMultiwfn, setRunningMultiwfn] = useState(false);
   const [multiwfnStdout, setMultiwfnStdout] = useState<string>('');
+
+  // Layout Flexibility & Fullscreen state
+  const [sftpFileListHeight, setSftpFileListHeight] = useState<number>(420);
+  const [sftpMaximized, setSftpMaximized] = useState<boolean>(false);
+  const [layoutProportion, setLayoutProportion] = useState<'equal' | 'file-first' | 'term-first'>('equal');
+  const [isDraggingSftp, setIsDraggingSftp] = useState<boolean>(false);
+  const sftpStartYRef = useRef(0);
+  const sftpStartHRef = useRef(0);
+
+  const startDragSftp = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDraggingSftp(true);
+    sftpStartYRef.current = e.clientY;
+    sftpStartHRef.current = sftpFileListHeight;
+
+    const onMouseMove = (ev: MouseEvent) => {
+      const delta = ev.clientY - sftpStartYRef.current;
+      const nextH = Math.max(220, Math.min(1000, sftpStartHRef.current + delta));
+      setSftpFileListHeight(nextH);
+    };
+
+    const onMouseUp = () => {
+      setIsDraggingSftp(false);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
 
   // Load Saved Configurations on Mount
   useEffect(() => {
@@ -509,23 +544,99 @@ export const LinuxServerWorkspace: React.FC<LinuxServerWorkspaceProps> = ({
         </div>
       )}
 
-      {/* Main Two-Column Layout: Remote File Explorer (Left) & Slurm/Terminal/Multiwfn (Right) */}
+      {/* Proportions & Layout Controls */}
+      <div className="flex items-center justify-between flex-wrap gap-2 px-1">
+        <div className="flex items-center gap-1.5 text-xs text-slate-400">
+          <Terminal className="w-3.5 h-3.5 text-cyan-400" />
+          <span>支持多面板拖拽调节高度与全屏拉伸</span>
+        </div>
+
+        <div className="flex items-center gap-1 text-[11px]">
+          <span className="text-slate-500 mr-1">分栏布局:</span>
+          {[
+            { id: 'equal' as const, label: '均衡 (5:7)' },
+            { id: 'file-first' as const, label: '文件优先 (7:5)' },
+            { id: 'term-first' as const, label: '终端优先 (4:8)' },
+          ].map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setLayoutProportion(item.id)}
+              className={`px-2 py-0.5 rounded-lg border text-[10px] font-mono transition cursor-pointer ${
+                layoutProportion === item.id
+                  ? 'bg-cyan-500/20 text-cyan-200 border-cyan-400/50'
+                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Main Responsive Two-Column Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* Left Column: Remote SFTP File Explorer */}
-        <div className="lg:col-span-5 glass-panel rounded-2xl p-4 space-y-3 flex flex-col">
-          <div className="flex items-center justify-between">
+        <div
+          className={`${
+            layoutProportion === 'file-first'
+              ? 'lg:col-span-7'
+              : layoutProportion === 'term-first'
+              ? 'lg:col-span-4'
+              : 'lg:col-span-5'
+          } ${
+            sftpMaximized
+              ? 'fixed inset-4 z-[9999] rounded-2xl bg-slate-950/95 border border-cyan-500/50 shadow-2xl p-6 flex flex-col backdrop-blur-2xl'
+              : 'glass-panel rounded-2xl p-4 space-y-3 flex flex-col'
+          }`}
+        >
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
               <FolderOpen className="w-3.5 h-3.5 text-cyan-400" />
               <span>远程文件系统浏览器 (SFTP)</span>
             </h3>
-            <button
-              disabled={loadingFiles}
-              onClick={() => refreshRemoteFiles(currentRemoteDir)}
-              className="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer"
-            >
-              <RefreshCw className={`w-3 h-3 ${loadingFiles ? 'animate-spin' : ''}`} />
-              <span>刷新</span>
-            </button>
+
+            <div className="flex items-center gap-1">
+              {/* SFTP Height Presets */}
+              {!sftpMaximized && (
+                <div className="hidden sm:flex items-center gap-1 mr-1">
+                  {[
+                    { label: '标准', h: 360 },
+                    { label: '高纵深', h: 540 },
+                    { label: '巨幕', h: 780 },
+                  ].map((p) => (
+                    <button
+                      key={p.label}
+                      onClick={() => setSftpFileListHeight(p.h)}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-mono cursor-pointer transition ${
+                        sftpFileListHeight === p.h
+                          ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-400/50'
+                          : 'bg-slate-900 text-slate-500 border border-slate-800 hover:text-slate-300'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <button
+                disabled={loadingFiles}
+                onClick={() => refreshRemoteFiles(currentRemoteDir)}
+                className="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer mr-1"
+              >
+                <RefreshCw className={`w-3 h-3 ${loadingFiles ? 'animate-spin' : ''}`} />
+                <span>刷新</span>
+              </button>
+
+              <Tooltip content={sftpMaximized ? '还原窗口' : '全屏最大化文件浏览器'}>
+                <button
+                  onClick={() => setSftpMaximized(!sftpMaximized)}
+                  className="p-1 rounded-lg bg-slate-900 border border-slate-800 hover:border-cyan-500/40 text-slate-400 hover:text-cyan-300 cursor-pointer transition"
+                >
+                  {sftpMaximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                </button>
+              </Tooltip>
+            </div>
           </div>
 
           {/* Directory Navigation & Filter */}
@@ -574,8 +685,13 @@ export const LinuxServerWorkspace: React.FC<LinuxServerWorkspaceProps> = ({
             </div>
           )}
 
-          {/* File Entries List */}
-          <div className="flex-1 min-h-[350px] max-h-[550px] overflow-y-auto rounded-xl border border-slate-800 bg-slate-950/60 divide-y divide-slate-800/60">
+          {/* File Entries List with Dynamic Height */}
+          <div
+            style={sftpMaximized ? undefined : { height: `${sftpFileListHeight}px` }}
+            className={`w-full overflow-y-auto rounded-xl border border-slate-800 bg-slate-950/60 divide-y divide-slate-800/60 ${
+              sftpMaximized ? 'flex-1 min-h-0' : ''
+            }`}
+          >
             {remoteFiles.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center p-8 text-center text-xs text-slate-500">
                 <HardDrive className="w-8 h-8 text-slate-700 mb-2" />
@@ -640,10 +756,31 @@ export const LinuxServerWorkspace: React.FC<LinuxServerWorkspaceProps> = ({
               ))
             )}
           </div>
+
+          {/* Draggable Height Resizer for SFTP */}
+          {!sftpMaximized && (
+            <div
+              onMouseDown={startDragSftp}
+              className={`w-full h-2.5 flex items-center justify-center cursor-row-resize rounded-md transition select-none group ${
+                isDraggingSftp ? 'bg-cyan-500/40' : 'hover:bg-cyan-500/20'
+              }`}
+              title="按住上下拖拽可自由调节文件列表高度"
+            >
+              <div className="w-12 h-1 rounded-full bg-slate-700 group-hover:bg-cyan-400 transition" />
+            </div>
+          )}
         </div>
 
         {/* Right Column: Slurm Terminal & Remote Multiwfn Runner */}
-        <div className="lg:col-span-7 space-y-4">
+        <div
+          className={`${
+            layoutProportion === 'file-first'
+              ? 'lg:col-span-5'
+              : layoutProportion === 'term-first'
+              ? 'lg:col-span-8'
+              : 'lg:col-span-7'
+          } space-y-4`}
+        >
           {/* Slurm & Remote Shell Terminal */}
           <div className="glass-panel rounded-2xl p-4 space-y-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
@@ -711,10 +848,14 @@ export const LinuxServerWorkspace: React.FC<LinuxServerWorkspaceProps> = ({
               </button>
             </div>
 
-            {/* Terminal Output Window */}
-            <pre className="h-[180px] overflow-auto rounded-xl bg-slate-950 border border-slate-800 p-3 text-[11px] font-mono text-slate-300 whitespace-pre-wrap">
-              {cmdStdout || '# 远程终端输出将显示在此处 (支持 Slurm 作业监控、formchk 转换、查看日志等)...'}
-            </pre>
+            {/* Expandable and Resizable Terminal Output Window */}
+            <ExpandableConsole
+              title="终端输出流"
+              content={cmdStdout}
+              placeholder="# 远程终端输出将显示在此处 (支持 Slurm 作业监控、formchk 转换、查看日志等)..."
+              initialHeight={220}
+              onClear={() => setCmdStdout('')}
+            />
           </div>
 
           {/* Remote Multiwfn Execution Engine */}
@@ -767,13 +908,14 @@ export const LinuxServerWorkspace: React.FC<LinuxServerWorkspaceProps> = ({
                 </button>
               </div>
 
-              <div className="md:col-span-7 space-y-1">
-                <label className="text-[11px] font-semibold text-slate-400 block">
-                  远程 Multiwfn 标准输出流
-                </label>
-                <pre className="h-[185px] overflow-auto rounded-xl bg-slate-950 border border-slate-800 p-2.5 text-[11px] font-mono text-slate-300 whitespace-pre-wrap">
-                  {multiwfnStdout || '远程 Multiwfn 执行输出将实时显示于此...'}
-                </pre>
+              <div className="md:col-span-7">
+                <ExpandableConsole
+                  title="远程 Multiwfn 标准输出流"
+                  content={multiwfnStdout}
+                  placeholder="远程 Multiwfn 执行输出将实时显示于此..."
+                  initialHeight={220}
+                  onClear={() => setMultiwfnStdout('')}
+                />
               </div>
             </div>
           </div>

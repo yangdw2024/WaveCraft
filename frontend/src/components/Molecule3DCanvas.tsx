@@ -430,6 +430,38 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     ctrl.update();
   };
 
+  // AI Agent & External Software Command Listener
+  useEffect(() => {
+    const handle3DAction = (ev: Event) => {
+      const customEv = ev as CustomEvent<{ action: string; value?: any }>;
+      if (!customEv.detail) return;
+      const { action, value } = customEv.detail;
+      if (action === 'setStyle' && (value === 'ball-stick' || value === 'spacefill' || value === 'wireframe')) {
+        setStyle(value);
+      } else if (action === 'setShowSymbols') {
+        setShowSymbols(Boolean(value));
+      } else if (action === 'setShowIndices') {
+        setShowIndices(Boolean(value));
+      } else if (action === 'toggleSymbols') {
+        setShowSymbols((v) => !v);
+      } else if (action === 'toggleIndices') {
+        setShowIndices((v) => !v);
+      } else if (action === 'resetCamera' || action === 'fit') {
+        setCameraPreset('fit');
+      } else if (action === 'setCameraPreset' && (value === 'side' || value === 'top' || value === 'front' || value === 'fit')) {
+        setCameraPreset(value);
+      } else if (action === 'setRotationMode' && (value === 'free' || value === 'horizon')) {
+        setRotationMode(value);
+      } else if (action === 'setSelectMode') {
+        setSelectMode(value || 'none');
+      } else if (action === 'clearSelection') {
+        commitSelection([]);
+      }
+    };
+    window.addEventListener('wavecraft-3d-action', handle3DAction);
+    return () => window.removeEventListener('wavecraft-3d-action', handle3DAction);
+  }, []);
+
   const chargeMap = useMemo(() => {
     const m = new Map<number, number>();
     if (charges) {
