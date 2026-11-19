@@ -102,7 +102,7 @@ const DEFAULT_PRESET_MODELS: ModelItem[] = [
 export const AiAgentWorkspace: React.FC<AiAgentWorkspaceProps> = ({ inspection }) => {
   // Model Configuration matching user's local Antigravity Tools / OpenAI proxy
   const [apiUrl, setApiUrl] = useState('http://127.0.0.1:8045/v1');
-  const [apiKey, setApiKey] = useState('sk-c94f8f28c01d43dd84865a0cc8e0c9a3');
+  const [apiKey, setApiKey] = useState('sk-9baf34c57c4c47208685ef9751a51660');
   const [model, setModel] = useState('gemini-3.8-flash');
   const [modelsList, setModelsList] = useState<ModelItem[]>(DEFAULT_PRESET_MODELS);
   const [loadingModels, setLoadingModels] = useState(false);

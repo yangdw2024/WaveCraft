@@ -24,6 +24,8 @@ export interface RemoteServerProfile {
   key_path?: string;
   remote_work_dir?: string;
   remote_multiwfn_path?: string;
+  is_wsl?: boolean;
+  distro?: string;
 }
 
 export interface RemoteFileInfo {

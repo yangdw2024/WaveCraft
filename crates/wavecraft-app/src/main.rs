@@ -1302,6 +1302,49 @@ async fn sobko_search_handler(
     })))
 }
 
+fn resolve_llm_defaults(
+    req_url: Option<&str>,
+    req_key: Option<&str>,
+    req_model: Option<&str>,
+) -> (String, String, String) {
+    let mut url = req_url.unwrap_or("").trim().to_string();
+    let mut key = req_key.unwrap_or("").trim().to_string();
+    let mut model = req_model.unwrap_or("").trim().to_string();
+
+    let config_path = std::path::PathBuf::from(r"E:\YDW\Trae_Chemdraw\MolForge_v8\user_data\settings\llm_config.json");
+    if let Ok(c) = std::fs::read_to_string(&config_path) {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&c) {
+            if url.is_empty() {
+                if let Some(u) = v["base_url"].as_str() {
+                    url = u.to_string();
+                }
+            }
+            if key.is_empty() || key == "sk-c94f8f28c01d43dd84865a0cc8e0c9a3" {
+                if let Some(k) = v["api_key"].as_str() {
+                    key = k.to_string();
+                }
+            }
+            if model.is_empty() {
+                if let Some(m) = v["model"].as_str() {
+                    model = m.to_string();
+                }
+            }
+        }
+    }
+
+    if url.is_empty() {
+        url = "http://127.0.0.1:8045/v1".to_string();
+    }
+    if key.is_empty() || key == "sk-c94f8f28c01d43dd84865a0cc8e0c9a3" {
+        key = "sk-9baf34c57c4c47208685ef9751a51660".to_string();
+    }
+    if model.is_empty() {
+        model = "gemini-3.8-flash".to_string();
+    }
+
+    (url, key, model)
+}
+
 #[derive(Deserialize)]
 struct AgentModelsReq {
     api_url: Option<String>,
@@ -1311,14 +1354,8 @@ struct AgentModelsReq {
 async fn agent_models_handler(
     Json(req): Json<AgentModelsReq>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
-    let api_url = req
-        .api_url
-        .as_deref()
-        .unwrap_or("http://127.0.0.1:8045/v1");
-    let api_key = req
-        .api_key
-        .as_deref()
-        .unwrap_or("sk-c94f8f28c01d43dd84865a0cc8e0c9a3");
+    let (api_url, api_key, _) =
+        resolve_llm_defaults(req.api_url.as_deref(), req.api_key.as_deref(), None);
 
     let endpoint = if api_url.ends_with("/models") {
         api_url.to_string()
@@ -1449,13 +1486,25 @@ async fn remote_config_get_handler() -> impl IntoResponse {
     Json(serde_json::json!({
         "servers": [
             {
+                "id": "wsl-ubuntu",
+                "name": "本地 WSL2 Ubuntu (原生极速)",
+                "host": "wsl",
+                "port": 0,
+                "username": "administrator",
+                "remote_work_dir": "/home/administrator/work/mwfn_cm5_test",
+                "remote_multiwfn_path": "/home/administrator/opt/Multiwfn/bin/Multiwfn",
+                "is_wsl": true,
+                "distro": "Ubuntu"
+            },
+            {
                 "id": "cluster-1",
                 "name": "超算/课题组 Linux 计算节点",
                 "host": "192.168.1.100",
                 "port": 22,
                 "username": "calc",
                 "remote_work_dir": "/home/calc/jobs",
-                "remote_multiwfn_path": "/home/calc/bin/Multiwfn"
+                "remote_multiwfn_path": "/home/calc/bin/Multiwfn",
+                "is_wsl": false
             }
         ]
     }))
@@ -1511,15 +1560,11 @@ async fn agent_chat_handler(
     State(state): State<AppState>,
     Json(req): Json<AgentChatReq>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
-    let api_url = req
-        .api_url
-        .as_deref()
-        .unwrap_or("http://127.0.0.1:8045/v1");
-    let api_key = req
-        .api_key
-        .as_deref()
-        .unwrap_or("sk-c94f8f28c01d43dd84865a0cc8e0c9a3");
-    let model = req.model.as_deref().unwrap_or("gemini-3.8-flash");
+    let (api_url, api_key, model) = resolve_llm_defaults(
+        req.api_url.as_deref(),
+        req.api_key.as_deref(),
+        req.model.as_deref(),
+    );
 
     let mut steps = Vec::new();
 

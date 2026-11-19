@@ -471,6 +471,8 @@ export const api = {
     key_path?: string;
     remote_dir?: string;
     pattern?: string;
+    is_wsl?: boolean;
+    distro?: string;
   }) =>
     reqJson<{
       ok: boolean;
@@ -498,6 +500,8 @@ export const api = {
     password?: string;
     key_path?: string;
     remote_path: string;
+    is_wsl?: boolean;
+    distro?: string;
   }) =>
     reqJson<{
       ok: boolean;
@@ -521,6 +525,8 @@ export const api = {
     key_path?: string;
     command: string;
     work_dir?: string;
+    is_wsl?: boolean;
+    distro?: string;
   }) =>
     reqJson<{
       ok: boolean;
@@ -543,6 +549,8 @@ export const api = {
     commands: string[];
     multiwfn_bin?: string;
     work_dir?: string;
+    is_wsl?: boolean;
+    distro?: string;
   }) =>
     reqJson<{
       ok: boolean;

@@ -29,7 +29,21 @@ interface LinuxServerWorkspaceProps {
   onSelectFile?: (path: string) => void;
 }
 
-const DEFAULT_SERVER: RemoteServerProfile = {
+const WSL_DEFAULT_SERVER: RemoteServerProfile = {
+  id: 'wsl-ubuntu',
+  name: '本地 WSL2 Ubuntu (原生极速)',
+  host: 'wsl',
+  port: 0,
+  username: 'administrator',
+  password: '',
+  key_path: '',
+  remote_work_dir: '/home/administrator/work/mwfn_cm5_test',
+  remote_multiwfn_path: '/home/administrator/opt/Multiwfn/bin/Multiwfn',
+  is_wsl: true,
+  distro: 'Ubuntu',
+};
+
+const CLUSTER_SERVER: RemoteServerProfile = {
   id: 'cluster-default',
   name: '超算 / 课题组 Linux 计算节点',
   host: '192.168.1.100',
@@ -39,20 +53,23 @@ const DEFAULT_SERVER: RemoteServerProfile = {
   key_path: '',
   remote_work_dir: '/home/calc/jobs',
   remote_multiwfn_path: 'multiwfn',
+  is_wsl: false,
 };
+
+const INITIAL_SERVERS = [WSL_DEFAULT_SERVER, CLUSTER_SERVER];
 
 export const LinuxServerWorkspace: React.FC<LinuxServerWorkspaceProps> = ({
   inspection,
   onSelectFile,
 }) => {
   // Server Profiles
-  const [servers, setServers] = useState<RemoteServerProfile[]>([DEFAULT_SERVER]);
-  const [selectedServerId, setSelectedServerId] = useState<string>(DEFAULT_SERVER.id);
+  const [servers, setServers] = useState<RemoteServerProfile[]>(INITIAL_SERVERS);
+  const [selectedServerId, setSelectedServerId] = useState<string>(WSL_DEFAULT_SERVER.id);
   const [showConfig, setShowConfig] = useState(false);
 
   // Active Server Config
   const activeServer =
-    servers.find((s) => s.id === selectedServerId) || servers[0] || DEFAULT_SERVER;
+    servers.find((s) => s.id === selectedServerId) || servers[0] || WSL_DEFAULT_SERVER;
 
   // Connection & System Status
   const [testing, setTesting] = useState(false);
@@ -118,7 +135,7 @@ export const LinuxServerWorkspace: React.FC<LinuxServerWorkspaceProps> = ({
   const testConnection = async () => {
     setTesting(true);
     setConnected(null);
-    setStatusMsg('正在通过 SSH 探测远程 Linux 节点...');
+    setStatusMsg(activeServer.is_wsl ? '正在连接本地 WSL2 实例...' : '正在通过 SSH 探测远程 Linux 节点...');
     try {
       const res = await api.testRemoteServer({
         host: activeServer.host,
@@ -126,6 +143,8 @@ export const LinuxServerWorkspace: React.FC<LinuxServerWorkspaceProps> = ({
         username: activeServer.username,
         password: activeServer.password || undefined,
         key_path: activeServer.key_path || undefined,
+        is_wsl: activeServer.is_wsl,
+        distro: activeServer.distro,
       });
 
       if (res.ok) {
@@ -160,6 +179,8 @@ export const LinuxServerWorkspace: React.FC<LinuxServerWorkspaceProps> = ({
         key_path: activeServer.key_path || undefined,
         remote_dir: dirToRead,
         pattern: filterPattern,
+        is_wsl: activeServer.is_wsl,
+        distro: activeServer.distro,
       });
 
       if (res.ok) {
@@ -177,7 +198,7 @@ export const LinuxServerWorkspace: React.FC<LinuxServerWorkspaceProps> = ({
   // Fetch Remote File to Local & Open
   const handleFetchAndLoad = async (remotePath: string) => {
     setFetchingFile(remotePath);
-    setFetchNotice(`正在从 Linux 服务器拉取 ${remotePath}...`);
+    setFetchNotice(`正在从服务器拉取 ${remotePath}...`);
     try {
       const res = await api.fetchRemoteFile({
         host: activeServer.host,
@@ -186,6 +207,8 @@ export const LinuxServerWorkspace: React.FC<LinuxServerWorkspaceProps> = ({
         password: activeServer.password || undefined,
         key_path: activeServer.key_path || undefined,
         remote_path: remotePath,
+        is_wsl: activeServer.is_wsl,
+        distro: activeServer.distro,
       });
 
       if (res.ok) {
@@ -216,6 +239,8 @@ export const LinuxServerWorkspace: React.FC<LinuxServerWorkspaceProps> = ({
         key_path: activeServer.key_path || undefined,
         command: cmdToRun,
         work_dir: currentRemoteDir,
+        is_wsl: activeServer.is_wsl,
+        distro: activeServer.distro,
       });
       setCmdStdout(res.stdout || res.stderr || '命令执行完成（无输出）');
       setCmdExitCode(res.exit_code);
@@ -246,6 +271,8 @@ export const LinuxServerWorkspace: React.FC<LinuxServerWorkspaceProps> = ({
         commands: cmds,
         multiwfn_bin: activeServer.remote_multiwfn_path || 'multiwfn',
         work_dir: currentRemoteDir,
+        is_wsl: activeServer.is_wsl,
+        distro: activeServer.distro,
       });
       setMultiwfnStdout(res.stdout || res.stderr || 'Multiwfn 执行完成');
     } catch (e: any) {
@@ -345,6 +372,36 @@ export const LinuxServerWorkspace: React.FC<LinuxServerWorkspaceProps> = ({
       {/* Expandable Configuration Drawer */}
       {showConfig && (
         <div className="glass-panel rounded-2xl p-4 space-y-4 border border-cyan-500/30 bg-slate-950/90 animate-in fade-in duration-200">
+          {/* Mode Switcher */}
+          <div className="flex items-center gap-2 pb-2 border-b border-slate-800">
+            <span className="text-xs font-medium text-slate-400">连接模式:</span>
+            <button
+              onClick={() => updateActiveServer({ is_wsl: true, host: 'wsl' })}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition ${
+                activeServer.is_wsl
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 shadow-sm'
+                  : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200'
+              }`}
+            >
+              本地 WSL2 原生极速 (免 SSH 服务)
+            </button>
+            <button
+              onClick={() => updateActiveServer({ is_wsl: false, host: activeServer.host === 'wsl' ? '192.168.1.100' : activeServer.host })}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition ${
+                !activeServer.is_wsl
+                  ? 'bg-sky-500/20 text-sky-300 border border-sky-400/40 shadow-sm'
+                  : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200'
+              }`}
+            >
+              远程 SSH / 超算集群
+            </button>
+            {activeServer.is_wsl && (
+              <span className="text-[11px] text-emerald-400 ml-auto font-mono bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                ✓ 原生支持 \\wsl$\Ubuntu 极速文件流
+              </span>
+            )}
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <div>
               <label className="text-[11px] font-semibold text-slate-400 block mb-1">
@@ -354,31 +411,36 @@ export const LinuxServerWorkspace: React.FC<LinuxServerWorkspaceProps> = ({
                 value={activeServer.name}
                 onChange={(e) => updateActiveServer({ name: e.target.value })}
                 className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-200"
-                placeholder="校级超算节点 / 课题组服务器"
+                placeholder="校级超算节点 / 本地 WSL2"
               />
             </div>
 
             <div>
               <label className="text-[11px] font-semibold text-slate-400 block mb-1">
-                主机 IP / 域名 (Host)
+                {activeServer.is_wsl ? 'WSL 分发版名称 (Distro)' : '主机 IP / 域名 (Host)'}
               </label>
               <input
-                value={activeServer.host}
-                onChange={(e) => updateActiveServer({ host: e.target.value })}
+                value={activeServer.is_wsl ? (activeServer.distro || 'Ubuntu') : activeServer.host}
+                onChange={(e) =>
+                  activeServer.is_wsl
+                    ? updateActiveServer({ distro: e.target.value, host: 'wsl' })
+                    : updateActiveServer({ host: e.target.value })
+                }
                 className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs font-mono text-slate-200"
-                placeholder="192.168.1.100 或 cluster.edu.cn"
+                placeholder={activeServer.is_wsl ? 'Ubuntu' : '192.168.1.100 或 cluster.edu.cn'}
               />
             </div>
 
             <div>
               <label className="text-[11px] font-semibold text-slate-400 block mb-1">
-                端口 (Port)
+                {activeServer.is_wsl ? '端口 (WSL 内部免配)' : '端口 (Port)'}
               </label>
               <input
                 type="number"
+                disabled={activeServer.is_wsl}
                 value={activeServer.port}
                 onChange={(e) => updateActiveServer({ port: Number(e.target.value) || 22 })}
-                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs font-mono text-slate-200"
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs font-mono text-slate-200 disabled:opacity-40"
                 placeholder="22"
               />
             </div>
@@ -391,7 +453,7 @@ export const LinuxServerWorkspace: React.FC<LinuxServerWorkspaceProps> = ({
                 value={activeServer.username}
                 onChange={(e) => updateActiveServer({ username: e.target.value })}
                 className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs font-mono text-slate-200"
-                placeholder="root 或 calc"
+                placeholder="administrator 或 calc"
               />
             </div>
           </div>

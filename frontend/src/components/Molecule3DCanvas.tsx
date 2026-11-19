@@ -14,6 +14,7 @@ import {
   Eye,
   EyeOff,
   GripHorizontal,
+  Hash,
   Layers,
   Maximize2,
   Minimize2,
@@ -44,9 +45,15 @@ import { Tooltip } from './Tooltip';
 function createAtomLabelSprite(
   symbol: string,
   index: number,
+  showSymbol: boolean,
+  showIndex: boolean,
   chargeText?: string,
   isSelected: boolean = false
-): THREE.Sprite {
+): THREE.Sprite | null {
+  if (!showSymbol && !showIndex && !chargeText) {
+    return null;
+  }
+
   const canvas = document.createElement('canvas');
   const dpr = 3;
   const ctx = canvas.getContext('2d')!;
@@ -55,14 +62,18 @@ function createAtomLabelSprite(
   const indexFont = '600 16px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';
   const chargeFont = '500 13px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';
 
-  ctx.font = symbolFont;
-  const symMetrics = ctx.measureText(symbol);
-  const symW = Math.ceil(symMetrics.width);
+  let symW = 0;
+  if (showSymbol) {
+    ctx.font = symbolFont;
+    symW = Math.ceil(ctx.measureText(symbol).width);
+  }
 
-  const indexStr = `${index}`;
-  ctx.font = indexFont;
-  const idxMetrics = ctx.measureText(indexStr);
-  const idxW = Math.ceil(idxMetrics.width);
+  const indexStr = showSymbol ? `${index}` : `#${index}`;
+  let idxW = 0;
+  if (showIndex) {
+    ctx.font = indexFont;
+    idxW = Math.ceil(ctx.measureText(indexStr).width);
+  }
 
   let chgW = 0;
   if (chargeText) {
@@ -71,7 +82,7 @@ function createAtomLabelSprite(
   }
 
   const padX = 7;
-  const spacing = 3;
+  const spacing = showSymbol && showIndex ? 3 : 0;
   const w = symW + spacing + idxW + chgW + padX * 2;
   const h = 26;
 
@@ -99,20 +110,26 @@ function createAtomLabelSprite(
   ctx.lineWidth = isSelected ? 1.8 : 1.0;
   ctx.stroke();
 
-  // Draw Element Symbol in crisp bold white
   ctx.textBaseline = 'middle';
   let curX = padX;
-  ctx.font = symbolFont;
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(symbol, curX, h / 2);
-  curX += symW + spacing;
+
+  // Draw Element Symbol in crisp bold white
+  if (showSymbol) {
+    ctx.font = symbolFont;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(symbol, curX, h / 2);
+    curX += symW + spacing;
+  }
 
   // Draw Atom Index in distinct cyan / sky color
-  ctx.font = indexFont;
-  ctx.fillStyle = isSelected ? '#bae6fd' : '#38bdf8';
-  ctx.fillText(indexStr, curX, h / 2);
-  curX += idxW;
+  if (showIndex) {
+    ctx.font = indexFont;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = isSelected ? '#bae6fd' : '#38bdf8';
+    ctx.fillText(indexStr, curX, h / 2);
+    curX += idxW;
+  }
 
   // Draw Charge if available
   if (chargeText) {
@@ -282,8 +299,10 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
   const autoRotateRef = useRef(false);
   autoRotateRef.current = autoRotate;
 
-  // Label Scope: all (全显) | heavy (仅非氢) | selected (仅选中) | none (关闭)
-  const [labelScope, setLabelScope] = useState<'all' | 'heavy' | 'selected' | 'none'>('all');
+  // 独立控制: 元素符号 (showSymbols) 与原子序号 (showIndices) 分离，默认全部关闭 (Default OFF)
+  const [showSymbols, setShowSymbols] = useState(false);
+  const [showIndices, setShowIndices] = useState(false);
+  const [labelScope, setLabelScope] = useState<'all' | 'heavy' | 'selected'>('all');
   const labelsRef = useRef<{ sprite: THREE.Sprite; atomIndex: number; pos: THREE.Vector3; radius: number }[]>([]);
   const pickableObjectsRef = useRef<THREE.Object3D[]>([]);
   const [colorByCharge, setColorByCharge] = useState(false);
@@ -809,7 +828,8 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     }
 
     // Native WebGL Sprite Atom Labels (Zero lag, dual-color crisp pill, camera-facing anchor)
-    if (labelScope !== 'none' && atoms.length > 0) {
+    const shouldRenderLabels = (showSymbols || showIndices || (colorByCharge && chargeMap.size > 0)) && atoms.length > 0;
+    if (shouldRenderLabels) {
       const labeledAtoms = atoms.filter((a) => {
         if (labelScope === 'selected') {
           return selectedIndices.includes(a.index);
@@ -830,7 +850,15 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
           ? `${q >= 0 ? '+' : ''}${q.toFixed(2)}`
           : undefined;
         const isSelected = selectedIndices.includes(a.index);
-        const sprite = createAtomLabelSprite(a.symbol, a.index, chargeText, isSelected);
+        const sprite = createAtomLabelSprite(
+          a.symbol,
+          a.index,
+          showSymbols,
+          showIndices,
+          chargeText,
+          isSelected
+        );
+        if (!sprite) continue;
         const radius =
           style === 'spacefill'
             ? a.vdw_radius * 0.72
@@ -874,8 +902,9 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     isoOpacity,
     isoWireframe,
     criticalPoints,
+    showSymbols,
+    showIndices,
     labelScope,
-    selectedIndices,
   ]);
 
   // Dedicated on-screen D-pad navigation helpers
@@ -1212,53 +1241,81 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
             </>
           )}
 
+          {/* 独立 元素符号 按钮 (默认关闭) */}
           <Tooltip
             content={
-              labelScope === 'all'
-                ? '当前: 全显原子标签 (点击切换为: 仅非氢原子)'
-                : labelScope === 'heavy'
-                  ? '当前: 仅非氢重原子 (点击切换为: 仅选中原子)'
-                  : labelScope === 'selected'
-                    ? '当前: 仅选中原子 (点击切换为: 隐藏标签)'
-                    : '当前: 隐藏标签 (点击开启全显)'
+              showSymbols
+                ? '当前: 开启元素符号 (如 C, H, O, Cl) · 点击关闭'
+                : '当前: 关闭元素符号 (默认关闭) · 点击开启'
             }
-            title={`标签: ${
-              labelScope === 'all'
-                ? '全显'
-                : labelScope === 'heavy'
-                  ? '非氢'
-                  : labelScope === 'selected'
-                    ? '仅选中'
-                    : '关闭'
-            }`}
+            title={`元素标签: ${showSymbols ? '开' : '关'}`}
           >
             <button
-              onClick={() => {
-                setLabelScope((prev) => {
-                  if (prev === 'all') return 'heavy';
-                  if (prev === 'heavy') return 'selected';
-                  if (prev === 'selected') return 'none';
-                  return 'all';
-                });
-              }}
+              onClick={() => setShowSymbols((v) => !v)}
               className={`flex items-center gap-1 px-2 py-1 rounded-lg border transition cursor-pointer text-xs ${
-                labelScope !== 'none'
-                  ? 'bg-sky-500/15 border-sky-400/35 text-sky-300'
-                  : 'bg-slate-900 border-slate-800 text-slate-400'
+                showSymbols
+                  ? 'bg-sky-500/20 border-sky-400/50 text-sky-200 shadow-[0_0_10px_rgba(56,189,248,0.25)]'
+                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-300'
               }`}
             >
               <Tag className="w-3.5 h-3.5" />
-              <span className="text-[10px] font-medium">
-                {labelScope === 'all'
-                  ? '全显'
-                  : labelScope === 'heavy'
-                    ? '非氢'
-                    : labelScope === 'selected'
-                      ? '选中'
-                      : '关'}
-              </span>
+              <span className="text-[10px] font-medium">元素</span>
             </button>
           </Tooltip>
+
+          {/* 独立 原子序号 按钮 (默认关闭) */}
+          <Tooltip
+            content={
+              showIndices
+                ? '当前: 开启原子序号 (如 #1, #2, #5) · 点击关闭'
+                : '当前: 关闭原子序号 (默认关闭) · 点击开启'
+            }
+            title={`原子序号: ${showIndices ? '开' : '关'}`}
+          >
+            <button
+              onClick={() => setShowIndices((v) => !v)}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg border transition cursor-pointer text-xs ${
+                showIndices
+                  ? 'bg-indigo-500/20 border-indigo-400/50 text-indigo-200 shadow-[0_0_10px_rgba(99,102,241,0.25)]'
+                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              <Hash className="w-3.5 h-3.5" />
+              <span className="text-[10px] font-medium">序号</span>
+            </button>
+          </Tooltip>
+
+          {/* 仅在元素或序号开启时呈现显示范围切换 */}
+          {(showSymbols || showIndices) && (
+            <Tooltip
+              content={
+                labelScope === 'all'
+                  ? '当前显示范围: 所有原子 · 点击切换为仅非氢原子'
+                  : labelScope === 'heavy'
+                    ? '当前显示范围: 仅非氢重原子 · 点击切换为仅选中原子'
+                    : '当前显示范围: 仅选中原子 · 点击切换为所有原子'
+              }
+              title={`显示范围: ${
+                labelScope === 'all' ? '全部' : labelScope === 'heavy' ? '非氢' : '仅选中'
+              }`}
+            >
+              <button
+                onClick={() => {
+                  setLabelScope((prev) => {
+                    if (prev === 'all') return 'heavy';
+                    if (prev === 'heavy') return 'selected';
+                    return 'all';
+                  });
+                }}
+                className="flex items-center gap-1 px-2 py-1 rounded-lg border border-cyan-500/30 bg-cyan-950/40 text-cyan-300 transition cursor-pointer text-xs hover:border-cyan-400/60"
+              >
+                <span className="text-[10px] text-slate-400">范围:</span>
+                <span className="text-[10px] font-medium">
+                  {labelScope === 'all' ? '全部' : labelScope === 'heavy' ? '非氢' : '仅选中'}
+                </span>
+              </button>
+            </Tooltip>
+          )}
 
           <Tooltip content="围绕分子质心轴平滑自动旋转" title="自动旋转">
             <button
