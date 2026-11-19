@@ -43,8 +43,8 @@ export class MolecularControls {
   private prevPointer: THREE.Vector2 = new THREE.Vector2();
   private activeAction: 'rotate' | 'pan' | null = null;
 
-  private rotVelocity: THREE.Vector2 = new THREE.Vector2();
-  private panVelocity: THREE.Vector2 = new THREE.Vector2();
+  rotVelocity: THREE.Vector2 = new THREE.Vector2();
+  panVelocity: THREE.Vector2 = new THREE.Vector2();
 
   // Bound event handlers
   private onPointerDownBound: (e: PointerEvent) => void;

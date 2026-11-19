@@ -27,6 +27,7 @@ import {
 import { api } from '../api/client';
 import { ExpandableConsole } from '../components/ExpandableConsole';
 import { Tooltip } from '../components/Tooltip';
+import { ResizableSplitPane } from '../components/ResizableSplitPane';
 import type { MoleculeInspection, RemoteFileInfo, RemoteServerProfile } from '../types/quantum';
 
 interface LinuxServerWorkspaceProps {
@@ -550,45 +551,20 @@ export const LinuxServerWorkspace: React.FC<LinuxServerWorkspaceProps> = ({
           <Terminal className="w-3.5 h-3.5 text-cyan-400" />
           <span>支持多面板拖拽调节高度与全屏拉伸</span>
         </div>
-
-        <div className="flex items-center gap-1 text-[11px]">
-          <span className="text-slate-500 mr-1">分栏布局:</span>
-          {[
-            { id: 'equal' as const, label: '均衡 (5:7)' },
-            { id: 'file-first' as const, label: '文件优先 (7:5)' },
-            { id: 'term-first' as const, label: '终端优先 (4:8)' },
-          ].map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setLayoutProportion(item.id)}
-              className={`px-2 py-0.5 rounded-lg border text-[10px] font-mono transition cursor-pointer ${
-                layoutProportion === item.id
-                  ? 'bg-cyan-500/20 text-cyan-200 border-cyan-400/50'
-                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
       </div>
 
-      {/* Main Responsive Two-Column Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* Left Column: Remote SFTP File Explorer */}
-        <div
-          className={`${
-            layoutProportion === 'file-first'
-              ? 'lg:col-span-7'
-              : layoutProportion === 'term-first'
-              ? 'lg:col-span-4'
-              : 'lg:col-span-5'
-          } ${
-            sftpMaximized
-              ? 'fixed inset-4 z-[9999] rounded-2xl bg-slate-950/95 border border-cyan-500/50 shadow-2xl p-6 flex flex-col backdrop-blur-2xl'
-              : 'glass-panel rounded-2xl p-4 space-y-3 flex flex-col'
-          }`}
-        >
+      {/* Main Responsive Two-Column Layout with ResizableSplitPane */}
+      <ResizableSplitPane
+        storageKey="linux_bridge"
+        defaultSplit={42}
+        left={
+          <div
+            className={`${
+              sftpMaximized
+                ? 'fixed inset-4 z-[9999] rounded-2xl bg-slate-950/95 border border-cyan-500/50 shadow-2xl p-6 flex flex-col backdrop-blur-2xl'
+                : 'glass-panel rounded-2xl p-4 space-y-3 flex flex-col'
+            }`}
+          >
           <div className="flex items-center justify-between flex-wrap gap-2">
             <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
               <FolderOpen className="w-3.5 h-3.5 text-cyan-400" />
@@ -770,17 +746,9 @@ export const LinuxServerWorkspace: React.FC<LinuxServerWorkspaceProps> = ({
             </div>
           )}
         </div>
-
-        {/* Right Column: Slurm Terminal & Remote Multiwfn Runner */}
-        <div
-          className={`${
-            layoutProportion === 'file-first'
-              ? 'lg:col-span-5'
-              : layoutProportion === 'term-first'
-              ? 'lg:col-span-8'
-              : 'lg:col-span-7'
-          } space-y-4`}
-        >
+      }
+      right={
+        <div className="space-y-4">
           {/* Slurm & Remote Shell Terminal */}
           <div className="glass-panel rounded-2xl p-4 space-y-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
@@ -920,7 +888,8 @@ export const LinuxServerWorkspace: React.FC<LinuxServerWorkspaceProps> = ({
             </div>
           </div>
         </div>
-      </div>
+      }
+    />
     </div>
   );
 };

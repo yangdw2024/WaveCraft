@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
-import { Camera, Download, Maximize2, Minimize2 } from 'lucide-react';
+import { Camera, Download, Maximize2, Minimize2, Image as ImageIcon } from 'lucide-react';
 import { Tooltip } from './Tooltip';
 import type {
   BondOrderEntry,
@@ -11,14 +11,74 @@ import type {
   SpectrumCurve,
 } from '../types/quantum';
 
+function downloadSvg(svgElement: SVGSVGElement | null, filename: string) {
+  if (!svgElement) return;
+  const svgData = new XMLSerializer().serializeToString(svgElement);
+  const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function downloadPng(svgElement: SVGSVGElement | null, filename: string, width = 1200, height = 700) {
+  if (!svgElement) return;
+  const svgData = new XMLSerializer().serializeToString(svgElement);
+  const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+  const blobUrl = URL.createObjectURL(blob);
+  const canvas = document.createElement('canvas');
+  canvas.width = width * 2;
+  canvas.height = height * 2;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    URL.revokeObjectURL(blobUrl);
+    return;
+  }
+  const img = new Image();
+  img.onload = () => {
+    ctx.fillStyle = '#090e17';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    URL.revokeObjectURL(blobUrl);
+    const url = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+  img.onerror = () => {
+    URL.revokeObjectURL(blobUrl);
+  };
+  img.src = blobUrl;
+}
+
+// 1. ChargeBarChart: Atom Net Charge Distribution
 export const ChargeBarChart: React.FC<{ charges: ChargeEntry[]; method: string }> = ({
   charges,
   method,
 }) => {
   if (charges.length === 0) return null;
+  const [isMaximized, setIsMaximized] = useState(false);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isMaximized) setIsMaximized(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isMaximized]);
+
   const maxAbs = Math.max(0.2, ...charges.map((c) => Math.abs(c.charge)));
-  const w = 680;
-  const h = 300;
+  const w = isMaximized ? 1100 : 680;
+  const h = isMaximized ? 560 : 300;
   const padL = 52;
   const padR = 20;
   const padT = 32;
@@ -27,175 +87,363 @@ export const ChargeBarChart: React.FC<{ charges: ChargeEntry[]; method: string }
   const plotH = h - padT - padB;
   const zeroY = padT + plotH / 2;
   const barSlot = plotW / Math.max(1, charges.length);
-  const barW = Math.min(36, barSlot * 0.68);
+  const barW = Math.min(48, barSlot * 0.68);
 
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-auto rounded-xl bg-[#090e17] border border-slate-800">
-      <text x={padL} y={19} fill="#cbd5e1" fontSize="12" fontWeight="600">
-        {method} 原子净电荷分布 (e)
-      </text>
-      <line x1={padL} y1={zeroY} x2={w - padR} y2={zeroY} stroke="#475569" strokeDasharray="4 3" />
-      {[-maxAbs, -maxAbs / 2, 0, maxAbs / 2, maxAbs].map((val, i) => {
-        const y = zeroY - (val / maxAbs) * (plotH / 2);
-        return (
-          <g key={i}>
-            <line x1={padL} y1={y} x2={w - padR} y2={y} stroke="rgba(148,163,184,0.08)" />
-            <text x={padL - 8} y={y + 4} textAnchor="end" fill="#94a3b8" fontSize="10" fontFamily="monospace">
-              {val.toFixed(2)}
-            </text>
-          </g>
-        );
-      })}
+    <div
+      className={`glass-panel rounded-2xl p-4 transition-all duration-300 ${
+        isMaximized
+          ? 'fixed inset-4 z-50 bg-[#070b12]/95 backdrop-blur-2xl flex flex-col justify-between shadow-2xl border border-sky-500/40'
+          : 'space-y-3'
+      }`}
+    >
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-slate-200">
+            {method} 原子净电荷柱状分布 (e)
+          </span>
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-sky-300">
+            {charges.length} 原子 · 极值: ±{maxAbs.toFixed(3)} e
+          </span>
+        </div>
 
-      {charges.map((c, idx) => {
-        const cx = padL + idx * barSlot + barSlot / 2;
-        const bh = (Math.abs(c.charge) / maxAbs) * (plotH / 2);
-        const y = c.charge >= 0 ? zeroY - bh : zeroY;
-        const fill = c.charge >= 0 ? '#38bdf8' : '#f43f5e';
-        return (
-          <g key={c.index}>
-            <rect
-              x={cx - barW / 2}
-              y={y}
-              width={barW}
-              height={Math.max(2, bh)}
-              rx={4}
-              fill={fill}
-              fillOpacity={0.85}
-            />
-            <text
-              x={cx}
-              y={c.charge >= 0 ? y - 5 : y + bh + 12}
-              textAnchor="middle"
-              fill="#e2e8f0"
-              fontSize="10"
-              fontFamily="monospace"
+        <div className="flex items-center gap-1.5">
+          <Tooltip content="导出出版级矢量 SVG 格式">
+            <button
+              onClick={() => downloadSvg(svgRef.current, `wavecraft_charges_${method}.svg`)}
+              className="p-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-sky-300 transition cursor-pointer"
             >
-              {c.charge.toFixed(3)}
-            </text>
-            <text
-              x={cx}
-              y={h - 14}
-              textAnchor="middle"
-              fill="#94a3b8"
-              fontSize="10.5"
-              fontFamily="monospace"
+              <Download className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
+          <Tooltip content="导出高保真位图 PNG 格式">
+            <button
+              onClick={() => downloadPng(svgRef.current, `wavecraft_charges_${method}.png`, w, h)}
+              className="p-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-sky-300 transition cursor-pointer"
             >
-              {c.element}
-              {c.index}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
+              <Camera className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
+          <Tooltip content={isMaximized ? '退出全屏 (Esc)' : '全屏放大图表'}>
+            <button
+              onClick={() => setIsMaximized(!isMaximized)}
+              className={`p-1 rounded-lg border transition cursor-pointer ${
+                isMaximized
+                  ? 'bg-amber-500/20 border-amber-400/40 text-amber-200'
+                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-sky-300'
+              }`}
+            >
+              {isMaximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </button>
+          </Tooltip>
+        </div>
+      </div>
+
+      <div className="relative w-full flex items-center justify-center overflow-hidden">
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${w} ${h}`}
+          className="w-full h-auto rounded-xl bg-[#090e17] border border-slate-800"
+        >
+          <line x1={padL} y1={zeroY} x2={w - padR} y2={zeroY} stroke="#475569" strokeDasharray="4 3" />
+          {[-maxAbs, -maxAbs / 2, 0, maxAbs / 2, maxAbs].map((val, i) => {
+            const y = zeroY - (val / maxAbs) * (plotH / 2);
+            return (
+              <g key={i}>
+                <line x1={padL} y1={y} x2={w - padR} y2={y} stroke="rgba(148,163,184,0.08)" />
+                <text x={padL - 8} y={y + 4} textAnchor="end" fill="#94a3b8" fontSize="10" fontFamily="monospace">
+                  {val.toFixed(2)}
+                </text>
+              </g>
+            );
+          })}
+
+          {charges.map((c, idx) => {
+            const cx = padL + idx * barSlot + barSlot / 2;
+            const bh = (Math.abs(c.charge) / maxAbs) * (plotH / 2);
+            const y = c.charge >= 0 ? zeroY - bh : zeroY;
+            const fill = c.charge >= 0 ? '#38bdf8' : '#f43f5e';
+            return (
+              <g key={c.index}>
+                <rect
+                  x={cx - barW / 2}
+                  y={y}
+                  width={barW}
+                  height={Math.max(2, bh)}
+                  rx={4}
+                  fill={fill}
+                  fillOpacity={0.85}
+                />
+                <text
+                  x={cx}
+                  y={c.charge >= 0 ? y - 5 : y + bh + 12}
+                  textAnchor="middle"
+                  fill="#e2e8f0"
+                  fontSize={isMaximized ? '12' : '10'}
+                  fontFamily="monospace"
+                >
+                  {c.charge.toFixed(3)}
+                </text>
+                <text
+                  x={cx}
+                  y={h - 14}
+                  textAnchor="middle"
+                  fill="#94a3b8"
+                  fontSize={isMaximized ? '12' : '10.5'}
+                  fontFamily="monospace"
+                >
+                  {c.element}
+                  {c.index}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </div>
   );
 };
 
+// 2. BondOrderBarChart: Covalent Bond Order Strengths
 export const BondOrderBarChart: React.FC<{ bonds: BondOrderEntry[]; method: string }> = ({
   bonds,
   method,
 }) => {
-  const top = bonds.slice(0, 14);
+  const top = bonds.slice(0, 16);
   if (top.length === 0) return null;
+  const [isMaximized, setIsMaximized] = useState(false);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isMaximized) setIsMaximized(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isMaximized]);
+
   const maxBo = Math.max(1.2, ...top.map((b) => Math.abs(b.bond_order)));
-  const w = 680;
-  const h = Math.max(240, top.length * 26 + 56);
+  const w = isMaximized ? 1100 : 680;
+  const h = isMaximized ? Math.max(450, top.length * 32 + 60) : Math.max(240, top.length * 26 + 56);
   const padL = 128;
   const padR = 65;
   const padT = 32;
   const plotW = w - padL - padR;
 
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-auto rounded-xl bg-[#090e17] border border-slate-800">
-      <text x={20} y={20} fill="#cbd5e1" fontSize="12" fontWeight="600">
-        {method} 键级强度分布 (Top {top.length})
-      </text>
-      {top.map((b, i) => {
-        const y = padT + i * 26;
-        const bw = (Math.max(0, b.bond_order) / maxBo) * plotW;
-        const color = b.bond_order > 1.75 ? '#a78bfa' : b.bond_order > 1.2 ? '#38bdf8' : '#22d3ee';
-        return (
-          <g key={`${b.atom1}-${b.atom2}-${i}`}>
-            <text x={padL - 10} y={y + 13} textAnchor="end" fill="#cbd5e1" fontSize="11" fontFamily="monospace">
-              {b.atom1} — {b.atom2}
-            </text>
-            <rect x={padL} y={y + 2} width={plotW} height={15} rx={4} fill="rgba(30,41,59,0.5)" />
-            <rect x={padL} y={y + 2} width={Math.max(3, bw)} height={15} rx={4} fill={color} fillOpacity={0.88} />
-            <text x={padL + bw + 8} y={y + 13} fill="#e2e8f0" fontSize="10.5" fontFamily="monospace">
-              {b.bond_order.toFixed(4)}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
+    <div
+      className={`glass-panel rounded-2xl p-4 transition-all duration-300 ${
+        isMaximized
+          ? 'fixed inset-4 z-50 bg-[#070b12]/95 backdrop-blur-2xl flex flex-col justify-between shadow-2xl border border-sky-500/40 overflow-y-auto'
+          : 'space-y-3'
+      }`}
+    >
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-slate-200">
+            {method} 键级强度分布 (Top {top.length})
+          </span>
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-sky-300">
+            最大键级: {maxBo.toFixed(3)}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <Tooltip content="导出矢量 SVG 格式">
+            <button
+              onClick={() => downloadSvg(svgRef.current, `wavecraft_bond_orders_${method}.svg`)}
+              className="p-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-sky-300 transition cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
+          <Tooltip content="导出高保真位图 PNG 格式">
+            <button
+              onClick={() => downloadPng(svgRef.current, `wavecraft_bond_orders_${method}.png`, w, h)}
+              className="p-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-sky-300 transition cursor-pointer"
+            >
+              <Camera className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
+          <Tooltip content={isMaximized ? '退出全屏 (Esc)' : '全屏放大图表'}>
+            <button
+              onClick={() => setIsMaximized(!isMaximized)}
+              className={`p-1 rounded-lg border transition cursor-pointer ${
+                isMaximized
+                  ? 'bg-amber-500/20 border-amber-400/40 text-amber-200'
+                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-sky-300'
+              }`}
+            >
+              {isMaximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </button>
+          </Tooltip>
+        </div>
+      </div>
+
+      <div className="relative w-full flex items-center justify-center overflow-hidden">
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${w} ${h}`}
+          className="w-full h-auto rounded-xl bg-[#090e17] border border-slate-800"
+        >
+          {top.map((b, i) => {
+            const stepY = isMaximized ? 32 : 26;
+            const y = padT + i * stepY;
+            const bw = (Math.max(0, b.bond_order) / maxBo) * plotW;
+            const color = b.bond_order > 1.75 ? '#a78bfa' : b.bond_order > 1.2 ? '#38bdf8' : '#22d3ee';
+            return (
+              <g key={`${b.atom1}-${b.atom2}-${i}`}>
+                <text x={padL - 10} y={y + 13} textAnchor="end" fill="#cbd5e1" fontSize={isMaximized ? '12' : '11'} fontFamily="monospace">
+                  {b.atom1} — {b.atom2}
+                </text>
+                <rect x={padL} y={y + 2} width={plotW} height={isMaximized ? 18 : 15} rx={4} fill="rgba(30,41,59,0.5)" />
+                <rect x={padL} y={y + 2} width={Math.max(3, bw)} height={isMaximized ? 18 : 15} rx={4} fill={color} fillOpacity={0.88} />
+                <text x={padL + bw + 8} y={y + 13} fill="#e2e8f0" fontSize={isMaximized ? '11.5' : '10.5'} fontFamily="monospace">
+                  {b.bond_order.toFixed(4)}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </div>
   );
 };
 
+// 3. OrbitalLadderChart: Frontier MO Energy Ladder
 export const OrbitalLadderChart: React.FC<{
   orbitals: OrbitalInfo[];
   selectedOrbital?: number;
   onSelectOrbital?: (idx: number) => void;
 }> = ({ orbitals, selectedOrbital, onSelectOrbital }) => {
   if (orbitals.length === 0) return null;
-  const homoIdx = orbitals.reduce((acc, o) => (o.occupancy > 0.01 ? Math.max(acc, o.index) : acc), 0);
-  const window = orbitals
-    .filter((o) => Math.abs(o.index - homoIdx) <= 6 && o.energy_ev > -45 && o.energy_ev < 45)
-    .sort((a, b) => b.energy_ev - a.energy_ev || b.index - a.index);
-  if (window.length === 0) return null;
+  const [isMaximized, setIsMaximized] = useState(false);
+  const svgRef = useRef<SVGSVGElement | null>(null);
 
-  const w = 540;
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isMaximized) setIsMaximized(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isMaximized]);
+
+  const homoIdx = orbitals.reduce((acc, o) => (o.occupancy > 0.01 ? Math.max(acc, o.index) : acc), 0);
+  const windowCount = isMaximized ? 12 : 7;
+  const windowOrbs = orbitals
+    .filter((o) => Math.abs(o.index - homoIdx) <= windowCount && o.energy_ev > -45 && o.energy_ev < 45)
+    .sort((a, b) => b.energy_ev - a.energy_ev || b.index - a.index);
+  if (windowOrbs.length === 0) return null;
+
+  const w = isMaximized ? 900 : 540;
   const padT = 36;
   const padB = 22;
-  const rowStep = 24;
-  const h = Math.max(340, padT + padB + window.length * rowStep);
+  const rowStep = isMaximized ? 30 : 24;
+  const h = Math.max(340, padT + padB + windowOrbs.length * rowStep);
 
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-auto rounded-xl bg-[#090e17] border border-slate-800">
-      <text x={18} y={20} fill="#cbd5e1" fontSize="12" fontWeight="600">
-        前线分子轨道能级阶梯 (点击任意轨道剖析成分)
-      </text>
-      {window.map((orb, rowIdx) => {
-        const y = padT + rowIdx * rowStep + 10;
-        const isOcc = orb.occupancy > 0.01;
-        const isSel = selectedOrbital === orb.index;
-        const stroke = isSel ? '#facc15' : isOcc ? '#38bdf8' : '#a78bfa';
-        return (
-          <g
-            key={`${orb.index}-${orb.spin_type}`}
-            onClick={() => onSelectOrbital?.(orb.index)}
-            className="cursor-pointer"
-          >
-            {orb.label === 'LUMO' && (
-              <line
-                x1={24}
-                y1={y + rowStep * 0.5}
-                x2={w - 24}
-                y2={y + rowStep * 0.5}
-                stroke="rgba(148,163,184,0.22)"
-                strokeDasharray="4 4"
-              />
-            )}
-            <line
-              x1={130}
-              y1={y}
-              x2={335}
-              y2={y}
-              stroke={stroke}
-              strokeWidth={isSel || orb.label === 'HOMO' || orb.label === 'LUMO' ? 3 : 1.8}
-            />
-            <text x={120} y={y + 4} textAnchor="end" fill="#cbd5e1" fontSize="10.5" fontFamily="monospace">
-              MO {orb.index} {orb.label ? `(${orb.label})` : ''}
-            </text>
-            <text x={345} y={y + 4} fill={stroke} fontSize="10.5" fontFamily="monospace">
-              {orb.energy_ev.toFixed(2)} eV · Occ {orb.occupancy.toFixed(1)}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
+    <div
+      className={`glass-panel rounded-2xl p-4 transition-all duration-300 ${
+        isMaximized
+          ? 'fixed inset-4 z-50 bg-[#070b12]/95 backdrop-blur-2xl flex flex-col justify-between shadow-2xl border border-sky-500/40 overflow-y-auto'
+          : 'space-y-3'
+      }`}
+    >
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-slate-200">
+            前线分子轨道能级阶梯 (点击任意轨道剖析成分)
+          </span>
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+            HOMO: #{homoIdx}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <Tooltip content="导出矢量 SVG 格式">
+            <button
+              onClick={() => downloadSvg(svgRef.current, `wavecraft_mo_ladder.svg`)}
+              className="p-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-sky-300 transition cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
+          <Tooltip content="导出高保真位图 PNG 格式">
+            <button
+              onClick={() => downloadPng(svgRef.current, `wavecraft_mo_ladder.png`, w, h)}
+              className="p-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-sky-300 transition cursor-pointer"
+            >
+              <Camera className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
+          <Tooltip content={isMaximized ? '退出全屏 (Esc)' : '全屏放大图表'}>
+            <button
+              onClick={() => setIsMaximized(!isMaximized)}
+              className={`p-1 rounded-lg border transition cursor-pointer ${
+                isMaximized
+                  ? 'bg-amber-500/20 border-amber-400/40 text-amber-200'
+                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-sky-300'
+              }`}
+            >
+              {isMaximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </button>
+          </Tooltip>
+        </div>
+      </div>
+
+      <div className="relative w-full flex items-center justify-center overflow-hidden">
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${w} ${h}`}
+          className="w-full h-auto rounded-xl bg-[#090e17] border border-slate-800"
+        >
+          {windowOrbs.map((orb, rowIdx) => {
+            const y = padT + rowIdx * rowStep + 10;
+            const isOcc = orb.occupancy > 0.01;
+            const isSel = selectedOrbital === orb.index;
+            const stroke = isSel ? '#facc15' : isOcc ? '#38bdf8' : '#a78bfa';
+            const midX1 = isMaximized ? 200 : 130;
+            const midX2 = isMaximized ? 560 : 335;
+            return (
+              <g
+                key={`${orb.index}-${orb.spin_type}`}
+                onClick={() => onSelectOrbital?.(orb.index)}
+                className="cursor-pointer"
+              >
+                {orb.label === 'LUMO' && (
+                  <line
+                    x1={24}
+                    y1={y + rowStep * 0.5}
+                    x2={w - 24}
+                    y2={y + rowStep * 0.5}
+                    stroke="rgba(148,163,184,0.22)"
+                    strokeDasharray="4 4"
+                  />
+                )}
+                <line
+                  x1={midX1}
+                  y1={y}
+                  x2={midX2}
+                  y2={y}
+                  stroke={stroke}
+                  strokeWidth={isSel || orb.label === 'HOMO' || orb.label === 'LUMO' ? 3.2 : 1.8}
+                />
+                <text x={midX1 - 10} y={y + 4} textAnchor="end" fill="#cbd5e1" fontSize={isMaximized ? '12' : '10.5'} fontFamily="monospace">
+                  MO {orb.index} {orb.label ? `(${orb.label})` : ''}
+                </text>
+                <text x={midX2 + 10} y={y + 4} fill={stroke} fontSize={isMaximized ? '12' : '10.5'} fontFamily="monospace">
+                  {orb.energy_ev.toFixed(2)} eV · 电子占据数 {orb.occupancy.toFixed(1)}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </div>
   );
 };
 
+// 4. DosChart: Total Density of States (TDOS)
 export const DosChart: React.FC<{ curve: DosCurve }> = ({ curve }) => {
   if (!curve.points.length) return null;
   const [isMaximized, setIsMaximized] = useState(false);
@@ -212,15 +460,11 @@ export const DosChart: React.FC<{ curve: DosCurve }> = ({ curve }) => {
   }, [isMaximized]);
 
   const exportSvg = () => {
-    if (!svgRef.current) return;
-    const svgData = new XMLSerializer().serializeToString(svgRef.current);
-    const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `wavecraft_tdos_${curve.broadening}.svg`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadSvg(svgRef.current, `wavecraft_tdos_${curve.broadening}.svg`);
+  };
+
+  const exportPng = () => {
+    downloadPng(svgRef.current, `wavecraft_tdos_${curve.broadening}.png`, w, h);
   };
 
   const w = isMaximized ? 1100 : 720;
@@ -239,24 +483,21 @@ export const DosChart: React.FC<{ curve: DosCurve }> = ({ curve }) => {
   const xOf = (e: number) => padL + ((e - minE) / Math.max(1e-6, maxE - minE)) * plotW;
   const yOf = (d: number) => padT + (1 - d / maxD) * plotH;
 
-  const pathOf = (pick: (p: DosCurve['points'][0]) => number) =>
-    curve.points
-      .map((p, i) => `${i === 0 ? 'M' : 'L'}${xOf(p.energy_ev).toFixed(1)},${yOf(pick(p)).toFixed(1)}`)
-      .join(' ');
+  const pathD = curve.points
+    .map((p, i) => `${i === 0 ? 'M' : 'L'}${xOf(p.energy_ev).toFixed(1)},${yOf(p.tdos).toFixed(1)}`)
+    .join(' ');
 
-  const tdosPath = pathOf((p) => p.tdos);
-  const occArea =
-    `${pathOf((p) => p.occupied_dos)} L${xOf(maxE).toFixed(1)},${(padT + plotH).toFixed(1)} L${xOf(minE).toFixed(1)},${(padT + plotH).toFixed(1)} Z`;
+  const areaD = `${pathD} L${xOf(maxE).toFixed(1)},${padT + plotH} L${xOf(minE).toFixed(1)},${padT + plotH} Z`;
 
   return (
     <div
-      className={
+      className={`glass-panel rounded-2xl p-4 transition-all duration-300 ${
         isMaximized
-          ? 'fixed inset-0 z-50 bg-[#070b12] p-6 flex flex-col items-center justify-center backdrop-blur-2xl'
-          : 'relative rounded-2xl bg-[#090e17] border border-slate-800 p-3 space-y-2'
-      }
+          ? 'fixed inset-4 z-50 bg-[#070b12]/95 backdrop-blur-2xl flex flex-col justify-between shadow-2xl border border-sky-500/40'
+          : 'space-y-3'
+      }`}
     >
-      <div className="w-full flex items-center justify-between gap-2 px-1">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <span className="text-xs font-bold text-slate-200">
             态密度谱图 TDOS ({curve.broadening})
@@ -286,8 +527,17 @@ export const DosChart: React.FC<{ curve: DosCurve }> = ({ curve }) => {
             </button>
           </Tooltip>
 
+          <Tooltip content="导出高保真位图 PNG 格式">
+            <button
+              onClick={exportPng}
+              className="p-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-sky-300 transition cursor-pointer"
+            >
+              <Camera className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
+
           <Tooltip
-            content={isMaximized ? "退出全屏模式" : "全屏沉浸高分辨率查看态密度谱图"}
+            content={isMaximized ? "退出全屏模式 (Esc)" : "全屏沉浸高分辨率查看态密度谱图"}
             title="视口模式"
             shortcut="[F]"
           >
@@ -309,56 +559,60 @@ export const DosChart: React.FC<{ curve: DosCurve }> = ({ curve }) => {
         <svg
           ref={svgRef}
           viewBox={`0 0 ${w} ${h}`}
-          className="w-full h-auto rounded-xl select-none"
+          className="w-full h-auto rounded-xl bg-[#090e17] border border-slate-800"
         >
-          <path d={occArea} fill="rgba(56, 189, 248, 0.16)" />
-          <path d={tdosPath} fill="none" stroke="#38bdf8" strokeWidth="2.2" />
-          <path d={pathOf((p) => p.virtual_dos)} fill="none" stroke="#a78bfa" strokeWidth="1.5" strokeDasharray="4 3" />
+          <defs>
+            <linearGradient id="tdosFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.45" />
+              <stop offset="100%" stopColor="#38bdf8" stopOpacity="0.02" />
+            </linearGradient>
+          </defs>
 
-          {curve.homo_energy_ev !== undefined && curve.homo_energy_ev !== null && (
-            <g>
-              <line
-                x1={xOf(curve.homo_energy_ev)}
-                y1={padT}
-                x2={xOf(curve.homo_energy_ev)}
-                y2={padT + plotH}
-                stroke="#22c55e"
-                strokeDasharray="5 3"
-              />
-              <text x={xOf(curve.homo_energy_ev) - 4} y={padT + 12} textAnchor="end" fill="#4ade80" fontSize="10.5" fontFamily="monospace">
-                HOMO ({curve.homo_energy_ev.toFixed(2)} eV)
-              </text>
-            </g>
-          )}
-
-          {curve.lumo_energy_ev !== undefined && curve.lumo_energy_ev !== null && (
-            <g>
-              <line
-                x1={xOf(curve.lumo_energy_ev)}
-                y1={padT}
-                x2={xOf(curve.lumo_energy_ev)}
-                y2={padT + plotH}
-                stroke="#f43f5e"
-                strokeDasharray="5 3"
-              />
-              <text x={xOf(curve.lumo_energy_ev) + 4} y={padT + 26} textAnchor="start" fill="#fb7185" fontSize="10.5" fontFamily="monospace">
-                LUMO ({curve.lumo_energy_ev.toFixed(2)} eV)
-              </text>
-            </g>
-          )}
-
-          <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="#475569" />
-          <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke="#475569" />
-          {[0, 0.25, 0.5, 0.75, 1].map((f, i) => {
-            const ev = minE + (maxE - minE) * f;
+          {/* Grid lines */}
+          {[-20, -10, 0, 10, 20].map((ev) => {
+            if (ev < minE || ev > maxE) return null;
+            const x = xOf(ev);
             return (
-              <text key={i} x={xOf(ev)} y={padT + plotH + 17} textAnchor="middle" fill="#94a3b8" fontSize="10" fontFamily="monospace">
-                {ev.toFixed(1)}
-              </text>
+              <g key={ev}>
+                <line x1={x} y1={padT} x2={x} y2={padT + plotH} stroke="rgba(148,163,184,0.12)" strokeDasharray="3 3" />
+                <text x={x} y={padT + plotH + 15} textAnchor="middle" fill="#94a3b8" fontSize="10" fontFamily="monospace">
+                  {ev}
+                </text>
+              </g>
             );
           })}
+
+          <path d={areaD} fill="url(#tdosFill)" />
+          <path d={pathD} fill="none" stroke="#38bdf8" strokeWidth="2.0" />
+
+          {curve.homo_energy_ev !== undefined && curve.homo_energy_ev !== null && (
+            <line
+              x1={xOf(curve.homo_energy_ev)}
+              y1={padT}
+              x2={xOf(curve.homo_energy_ev)}
+              y2={padT + plotH}
+              stroke="#34d399"
+              strokeWidth="1.5"
+              strokeDasharray="4 2"
+            />
+          )}
+
+          {/* Axis */}
+          <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="#475569" />
+          <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke="#475569" />
+
           <text x={padL + plotW / 2} y={h - 6} textAnchor="middle" fill="#cbd5e1" fontSize="11">
-            轨道能量 (eV) · 蓝色实线: 总态密度(TDOS) | 蓝色阴影: 占据态 | 紫色虚线: 虚态
+            能量 Energy (eV)
+          </text>
+          <text
+            x={16}
+            y={padT + plotH / 2}
+            textAnchor="middle"
+            fill="#cbd5e1"
+            fontSize="11"
+            transform={`rotate(-90 16 ${padT + plotH / 2})`}
+          >
+            态密度 TDOS (states/eV)
           </text>
         </svg>
       </div>
@@ -366,6 +620,7 @@ export const DosChart: React.FC<{ curve: DosCurve }> = ({ curve }) => {
   );
 };
 
+// 5. SpectrumChart: UV-Vis / IR / Raman Spectrum
 export const SpectrumChart: React.FC<{ curve: SpectrumCurve }> = ({ curve }) => {
   const [hovered, setHovered] = useState<number | null>(null);
   const [isMaximized, setIsMaximized] = useState(false);
@@ -381,26 +636,22 @@ export const SpectrumChart: React.FC<{ curve: SpectrumCurve }> = ({ curve }) => 
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isMaximized]);
 
+  if (!curve || curve.x_values.length === 0) return null;
+
   const exportSvg = () => {
-    if (!svgRef.current) return;
-    const svgData = new XMLSerializer().serializeToString(svgRef.current);
-    const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `wavecraft_spectrum_${curve.spectrum_type}.svg`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadSvg(svgRef.current, `wavecraft_spectrum_${curve.spectrum_type || 'spec'}.svg`);
   };
 
-  if (curve.x_values.length === 0) return null;
+  const exportPng = () => {
+    downloadPng(svgRef.current, `wavecraft_spectrum_${curve.spectrum_type || 'spec'}.png`, w, h);
+  };
 
   const w = isMaximized ? 1100 : 720;
   const h = isMaximized ? 560 : 340;
-  const padL = 56;
+  const padL = 60;
   const padR = 24;
-  const padT = 34;
-  const padB = 42;
+  const padT = 32;
+  const padB = 44;
   const plotW = w - padL - padR;
   const plotH = h - padT - padB;
 
@@ -418,19 +669,19 @@ export const SpectrumChart: React.FC<{ curve: SpectrumCurve }> = ({ curve }) => 
 
   return (
     <div
-      className={
+      className={`glass-panel rounded-2xl p-4 transition-all duration-300 ${
         isMaximized
-          ? 'fixed inset-0 z-50 bg-[#070b12] p-6 flex flex-col items-center justify-center backdrop-blur-2xl'
-          : 'relative rounded-2xl bg-[#090e17] border border-slate-800 p-3 space-y-2'
-      }
+          ? 'fixed inset-4 z-50 bg-[#070b12]/95 backdrop-blur-2xl flex flex-col justify-between shadow-2xl border border-sky-500/40'
+          : 'space-y-3'
+      }`}
     >
-      <div className="w-full flex items-center justify-between gap-2 px-1">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <span className="text-xs font-bold text-slate-200">
-            {curve.spectrum_type} 模拟展宽谱图
+            {curve.spectrum_type || '模拟展宽'} 光谱曲线
           </span>
           <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800/80 text-violet-300">
-            {curve.peaks.length} 个特征跃迁/振动峰
+            {curve.peaks.length} 个特征吸收/振动峰
           </span>
         </div>
 
@@ -444,8 +695,17 @@ export const SpectrumChart: React.FC<{ curve: SpectrumCurve }> = ({ curve }) => 
             </button>
           </Tooltip>
 
+          <Tooltip content="导出高保真位图 PNG 格式">
+            <button
+              onClick={exportPng}
+              className="p-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-sky-300 transition cursor-pointer"
+            >
+              <Camera className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
+
           <Tooltip
-            content={isMaximized ? "退出全屏模式" : "全屏沉浸高分辨率查看谱图与吸收峰"}
+            content={isMaximized ? '退出全屏模式 (Esc)' : '全屏沉浸高分辨率查看光谱图与跃迁棒'}
             title="视口模式"
             shortcut="[F]"
           >
@@ -467,51 +727,72 @@ export const SpectrumChart: React.FC<{ curve: SpectrumCurve }> = ({ curve }) => 
         <svg
           ref={svgRef}
           viewBox={`0 0 ${w} ${h}`}
-          className="w-full h-auto rounded-xl select-none"
+          className="w-full h-auto rounded-xl bg-[#090e17] border border-slate-800"
         >
-          <path d={areaPath} fill="rgba(168, 85, 247, 0.16)" />
-          <path d={linePath} fill="none" stroke="#c084fc" strokeWidth="2.2" />
+          <defs>
+            <linearGradient id="spectFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#a78bfa" stopOpacity="0.4" />
+              <stop offset="100%" stopColor="#a78bfa" stopOpacity="0.02" />
+            </linearGradient>
+          </defs>
 
+          {/* Area fill under curve */}
+          <path d={areaPath} fill="url(#spectFill)" />
+
+          {/* Stick peaks */}
           {curve.peaks.map((p, idx) => {
-            const px = xOf(p.x_value);
-            const py = yOf(p.intensity);
-            const active = hovered === idx;
+            const sx = xOf(p.x_value);
+            const sy = yOf(p.intensity);
+            const isHov = hovered === idx;
             return (
               <g
-                key={p.index}
+                key={p.index || idx}
                 onMouseEnter={() => setHovered(idx)}
                 onMouseLeave={() => setHovered(null)}
                 className="cursor-pointer"
               >
                 <line
-                  x1={px}
+                  x1={sx}
                   y1={padT + plotH}
-                  x2={px}
-                  y2={py}
-                  stroke={active ? '#facc15' : 'rgba(56, 189, 248, 0.55)'}
-                  strokeWidth={active ? 2.5 : 1.3}
+                  x2={sx}
+                  y2={Math.max(padT, sy)}
+                  stroke={isHov ? '#f43f5e' : '#fb7185'}
+                  strokeWidth={isHov ? 2.5 : 1.5}
                 />
-                {active && (
-                  <text x={Math.min(w - 130, Math.max(padL + 10, px))} y={Math.max(padT + 14, py - 6)} fill="#fde047" fontSize="10.5" fontFamily="monospace">
-                    {p.label}
-                  </text>
-                )}
+                <circle cx={sx} cy={Math.max(padT, sy)} r={isHov ? 4 : 2.5} fill={isHov ? '#f43f5e' : '#fb7185'} />
               </g>
             );
           })}
 
+          {/* Broadened envelope curve */}
+          <path d={linePath} fill="none" stroke="#c084fc" strokeWidth="2.2" />
+
+          {/* Axes */}
           <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="#475569" />
           <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke="#475569" />
+
+          {/* X ticks */}
           {[0, 0.25, 0.5, 0.75, 1].map((f, i) => {
             const xv = minX + (maxX - minX) * f;
             return (
-              <text key={i} x={xOf(xv)} y={padT + plotH + 17} textAnchor="middle" fill="#94a3b8" fontSize="10" fontFamily="monospace">
-                {xv.toFixed(0)}
+              <text key={i} x={xOf(xv)} y={padT + plotH + 16} textAnchor="middle" fill="#94a3b8" fontSize="10" fontFamily="monospace">
+                {xv.toFixed(1)}
               </text>
             );
           })}
+
           <text x={padL + plotW / 2} y={h - 6} textAnchor="middle" fill="#cbd5e1" fontSize="11">
-            {curve.x_label}
+            {curve.x_label || '波长 / 波数 (nm / cm⁻¹)'}
+          </text>
+          <text
+            x={16}
+            y={padT + plotH / 2}
+            textAnchor="middle"
+            fill="#cbd5e1"
+            fontSize="11"
+            transform={`rotate(-90 16 ${padT + plotH / 2})`}
+          >
+            {curve.y_label || '吸收强度 (Absorbance / Intensity)'}
           </text>
         </svg>
       </div>
@@ -519,54 +800,13 @@ export const SpectrumChart: React.FC<{ curve: SpectrumCurve }> = ({ curve }) => 
   );
 };
 
-function getBgrScatterColor(s: number): string {
-  // Continuous Multiwfn / gnuplot BGR color mapping:
-  // s = sign(lambda2) * rho
-  // <= -0.04: Royal Blue (Strong attractive, H-bonds)
-  // -0.02: Cyan
-  // 0.00: Emerald Green (vdW, pi-pi stacking)
-  // +0.012: Amber Yellow
-  // >= +0.02: Bright Red (Steric clash, ring strain)
-  if (s <= -0.04) return '#2563eb';
-  if (s < -0.015) {
-    const t = (s - -0.04) / 0.025;
-    const r = Math.round(37 + (6 - 37) * t);
-    const g = Math.round(99 + (182 - 99) * t);
-    const b = Math.round(235 + (212 - 235) * t);
-    return `rgb(${r},${g},${b})`;
-  }
-  if (s < 0.0) {
-    const t = (s - -0.015) / 0.015;
-    const r = Math.round(6 + (34 - 6) * t);
-    const g = Math.round(182 + (197 - 182) * t);
-    const b = Math.round(212 + (94 - 212) * t);
-    return `rgb(${r},${g},${b})`;
-  }
-  if (s < 0.012) {
-    const t = s / 0.012;
-    const r = Math.round(34 + (234 - 34) * t);
-    const g = Math.round(197 + (179 - 197) * t);
-    const b = Math.round(94 + (8 - 94) * t);
-    return `rgb(${r},${g},${b})`;
-  }
-  if (s < 0.022) {
-    const t = (s - 0.012) / 0.01;
-    const r = Math.round(234 + (239 - 234) * t);
-    const g = Math.round(179 + (68 - 179) * t);
-    const b = Math.round(8 + (68 - 8) * t);
-    return `rgb(${r},${g},${b})`;
-  }
-  return '#ef4444';
-}
-
+// 6. NciScatterChart: IGMH/RDG 2D Scatter Chart
 export const NciScatterChart: React.FC<{ points: NciPoint[]; method: string }> = ({
   points,
   method,
 }) => {
   const [customMaxY, setCustomMaxY] = useState<number | 'auto'>('auto');
   const [isMaximized, setIsMaximized] = useState(false);
-  const [hoveredPoint, setHoveredPoint] = useState<NciPoint | null>(null);
-  const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
@@ -579,162 +819,57 @@ export const NciScatterChart: React.FC<{ points: NciPoint[]; method: string }> =
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isMaximized]);
 
-  if (points.length === 0) return null;
-
-  const isIgm = method.includes('IGM');
-
-  // Compute real data maxima
-  const realMaxY = useMemo(() => {
-    let m = 0;
-    for (const p of points) {
-      if (p.rdg > m) m = p.rdg;
-    }
-    return m;
+  const maxPoints = 3000;
+  const sampledPoints = useMemo(() => {
+    if (points.length <= maxPoints) return points;
+    const step = Math.ceil(points.length / maxPoints);
+    return points.filter((_, idx) => idx % step === 0);
   }, [points]);
 
-  // Dynamic scientific Y-axis ceiling:
-  // For IGMH, dg_inter max is typically ~0.025-0.038 a.u. Defaulting to ~0.035-0.040 gives full resolution!
-  const activeMaxY = useMemo(() => {
-    if (typeof customMaxY === 'number') return customMaxY;
-    if (isIgm) {
-      const target = Math.max(0.025, realMaxY * 1.15);
-      return Math.ceil(target * 100) / 100;
-    }
-    return Math.max(1.5, Math.ceil(realMaxY * 1.1));
-  }, [customMaxY, isIgm, realMaxY]);
+  const exportSvg = () => {
+    downloadSvg(svgRef.current, `wavecraft_igmh_scatter_${method}.svg`);
+  };
+
+  const exportPng = () => {
+    downloadPng(svgRef.current, `wavecraft_igmh_scatter_${method}.png`, w, h);
+  };
 
   const w = isMaximized ? 1100 : 720;
-  const h = isMaximized ? 640 : 380;
-  const padL = 68;
-  const padR = 28;
-  const padT = 38;
-  const padB = 48;
+  const h = isMaximized ? 560 : 340;
+  const padL = 60;
+  const padR = 24;
+  const padT = 32;
+  const padB = 44;
   const plotW = w - padL - padR;
   const plotH = h - padT - padB;
 
   const minX = -0.05;
   const maxX = 0.05;
+  const maxY = customMaxY === 'auto' ? Math.max(0.6, ...points.map((p) => p.rdg)) : customMaxY;
 
-  const xOf = (s: number) => padL + ((Math.max(minX, Math.min(maxX, s)) - minX) / (maxX - minX)) * plotW;
-  const yOf = (r: number) => padT + (1 - Math.max(0, Math.min(activeMaxY, r)) / activeMaxY) * plotH;
-
-  const yTicks = useMemo(() => {
-    return [0, activeMaxY * 0.25, activeMaxY * 0.5, activeMaxY * 0.75, activeMaxY];
-  }, [activeMaxY]);
-
-  const exportSvg = () => {
-    if (!svgRef.current) return;
-    const svgData = new XMLSerializer().serializeToString(svgRef.current);
-    const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `wavecraft_${method}_scatter.svg`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  const xOf = (x: number) => padL + ((x - minX) / (maxX - minX)) * plotW;
+  const yOf = (y: number) => padT + (1 - Math.min(maxY, Math.max(0, y)) / maxY) * plotH;
 
   return (
     <div
-      className={
+      className={`glass-panel rounded-2xl p-4 transition-all duration-300 ${
         isMaximized
-          ? 'fixed inset-0 z-50 bg-[#070b12] p-6 flex flex-col items-center justify-center backdrop-blur-xl'
-          : 'relative rounded-2xl bg-[#090e17] border border-slate-800 p-3 space-y-2'
-      }
+          ? 'fixed inset-4 z-50 bg-[#070b12]/95 backdrop-blur-2xl flex flex-col justify-between shadow-2xl border border-sky-500/40'
+          : 'space-y-3'
+      }`}
     >
-      {/* Chart Header & Controls */}
-      <div className="flex items-center justify-between gap-2 flex-wrap px-1">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <span className="text-xs font-bold text-slate-200">
-            {method} {isIgm ? '分子间独立梯度模型 (IGMH)' : '非共价相互作用 (NCI)'} 散点图
+            {method} 弱相互作用二维散点图
           </span>
-          <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400">
-            {points.length.toLocaleString()} 采样点 · Y峰值: {realMaxY.toFixed(4)} a.u.
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-sky-300">
+            {points.length} 数据点 · 渲染 {sampledPoints.length} 点
           </span>
         </div>
 
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {/* Y Range Selector */}
-          <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-[10px] font-mono">
-            <span className="text-slate-500 px-1.5">Y量程:</span>
-            <Tooltip content="根据真实散点峰值动态设置最佳显示高度上限" title="自动量程">
-              <button
-                onClick={() => setCustomMaxY('auto')}
-                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
-                  customMaxY === 'auto'
-                    ? 'bg-sky-500/20 text-sky-300 font-bold'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                自动 ({activeMaxY.toFixed(activeMaxY < 0.1 ? 3 : 2)})
-              </button>
-            </Tooltip>
-            {isIgm ? (
-              <>
-                <Tooltip content="IGMH 经典标准量程 (0 ~ 0.04 a.u.)，二聚体堆积极佳" title="标准推荐">
-                  <button
-                    onClick={() => setCustomMaxY(0.04)}
-                    className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
-                      customMaxY === 0.04
-                        ? 'bg-sky-500/20 text-sky-300 font-bold'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    0.04 (标准)
-                  </button>
-                </Tooltip>
-                <Tooltip content="扩展量程 (0 ~ 0.08 a.u.)，适合强相互作用体系">
-                  <button
-                    onClick={() => setCustomMaxY(0.08)}
-                    className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
-                      customMaxY === 0.08
-                        ? 'bg-sky-500/20 text-sky-300 font-bold'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    0.08
-                  </button>
-                </Tooltip>
-                <Tooltip content="全尺度 RDG 范围 (0 ~ 2.0 a.u.)，包含高折减梯度区域" title="全景尺度">
-                  <button
-                    onClick={() => setCustomMaxY(2.0)}
-                    className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
-                      customMaxY === 2.0
-                        ? 'bg-sky-500/20 text-sky-300 font-bold'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    2.0 (全景)
-                  </button>
-                </Tooltip>
-              </>
-            ) : (
-              <>
-                <Tooltip content="低量程 0 ~ 1.0 a.u.">
-                  <button
-                    onClick={() => setCustomMaxY(1.0)}
-                    className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
-                      customMaxY === 1.0 ? 'bg-sky-500/20 text-sky-300' : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    1.0
-                  </button>
-                </Tooltip>
-                <Tooltip content="NCI 经典推荐量程 (0 ~ 2.0 a.u.)" title="标准量程">
-                  <button
-                    onClick={() => setCustomMaxY(2.0)}
-                    className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
-                      customMaxY === 2.0 ? 'bg-sky-500/20 text-sky-300' : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    2.0 (标准)
-                  </button>
-                </Tooltip>
-              </>
-            )}
-          </div>
-
-          <Tooltip content="导出出版级矢量 SVG 图表 (可无损缩放至期刊级排版)" title="导出矢量图" shortcut="[SVG]">
+        <div className="flex items-center gap-1.5">
+          <Tooltip content="导出矢量 SVG 格式">
             <button
               onClick={exportSvg}
               className="p-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-sky-300 transition cursor-pointer"
@@ -743,8 +878,17 @@ export const NciScatterChart: React.FC<{ points: NciPoint[]; method: string }> =
             </button>
           </Tooltip>
 
+          <Tooltip content="导出高保真位图 PNG 格式">
+            <button
+              onClick={exportPng}
+              className="p-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-sky-300 transition cursor-pointer"
+            >
+              <Camera className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
+
           <Tooltip
-            content={isMaximized ? "退出全屏模式" : "全屏大图沉浸精细分析"}
+            content={isMaximized ? "退出全屏模式 (Esc)" : "全屏放大散点图"}
             title="视口模式"
             shortcut="[F]"
           >
@@ -762,192 +906,65 @@ export const NciScatterChart: React.FC<{ points: NciPoint[]; method: string }> =
         </div>
       </div>
 
-      {/* SVG Canvas */}
       <div className="relative w-full flex items-center justify-center overflow-hidden">
         <svg
           ref={svgRef}
           viewBox={`0 0 ${w} ${h}`}
-          className="w-full h-auto rounded-xl select-none"
-          onMouseMove={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            const svgX = ((e.clientX - rect.left) / rect.width) * w;
-            const svgY = ((e.clientY - rect.top) / rect.height) * h;
-            setMousePos({ x: svgX, y: svgY });
-
-            // Find closest point within threshold
-            if (svgX >= padL && svgX <= padL + plotW && svgY >= padT && svgY <= padT + plotH) {
-              const invS = minX + ((svgX - padL) / plotW) * (maxX - minX);
-              const invY = (1 - (svgY - padT) / plotH) * activeMaxY;
-              let best: NciPoint | null = null;
-              let bestDist = Infinity;
-              for (const p of points) {
-                const dx = (p.sign_lambda2_rho - invS) / (maxX - minX);
-                const dy = (p.rdg - invY) / activeMaxY;
-                const d = dx * dx + dy * dy;
-                if (d < bestDist && d < 0.003) {
-                  bestDist = d;
-                  best = p;
-                }
-              }
-              setHoveredPoint(best);
-            } else {
-              setHoveredPoint(null);
-            }
-          }}
-          onMouseLeave={() => {
-            setHoveredPoint(null);
-            setMousePos(null);
-          }}
+          className="w-full h-auto rounded-xl bg-[#090e17] border border-slate-800"
         >
-          {/* Background grid */}
-          <rect x={padL} y={padT} width={plotW} height={plotH} fill="#060a10" rx={6} />
+          {/* Reference lines */}
+          <line x1={xOf(0)} y1={padT} x2={xOf(0)} y2={padT + plotH} stroke="#475569" strokeDasharray="3 3" />
+          <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="#475569" />
+          <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke="#475569" />
 
-          {/* Zero reference vertical line */}
-          <line
-            x1={xOf(0)}
-            y1={padT}
-            x2={xOf(0)}
-            y2={padT + plotH}
-            stroke="#334155"
-            strokeWidth="1.2"
-            strokeDasharray="4 3"
-          />
-
-          {/* Horizontal Grid lines */}
-          {yTicks.map((val, idx) => {
-            const y = yOf(val);
-            return (
-              <g key={idx}>
-                <line
-                  x1={padL}
-                  y1={y}
-                  x2={padL + plotW}
-                  y2={y}
-                  stroke="rgba(51, 65, 85, 0.45)"
-                  strokeDasharray="3 3"
-                />
-                <text
-                  x={padL - 10}
-                  y={y + 4}
-                  textAnchor="end"
-                  fill="#94a3b8"
-                  fontSize="10"
-                  fontFamily="monospace"
-                >
-                  {val.toFixed(val < 0.1 ? 3 : 2)}
-                </text>
-              </g>
-            );
-          })}
-
-          {/* Scatter points rendered with smooth continuous BGR colors */}
-          {points.map((p, i) => {
-            const s = p.sign_lambda2_rho;
-            const fill = getBgrScatterColor(s);
-            const cx = xOf(s);
+          {/* Scatter points with BGR colormap */}
+          {sampledPoints.map((p, idx) => {
+            const cx = xOf(p.sign_lambda2_rho);
             const cy = yOf(p.rdg);
-            return (
-              <circle
-                key={i}
-                cx={cx}
-                cy={cy}
-                r={1.75}
-                fill={fill}
-                fillOpacity={0.72}
-              />
-            );
+            let fill = '#10b981'; // Green: vdW
+            if (p.sign_lambda2_rho < -0.012) fill = '#0ea5e9'; // Blue: H-bond
+            else if (p.sign_lambda2_rho > 0.012) fill = '#f43f5e'; // Red: steric
+            return <circle key={idx} cx={cx} cy={cy} r={isMaximized ? 2.5 : 1.75} fill={fill} fillOpacity={0.7} />;
           })}
 
-          {/* Coordinate axes */}
-          <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="#475569" strokeWidth="1.2" />
-          <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke="#475569" strokeWidth="1.2" />
-
-          {/* X ticks */}
-          {[-0.05, -0.025, 0, 0.025, 0.05].map((v, i) => (
-            <g key={i}>
-              <line x1={xOf(v)} y1={padT + plotH} x2={xOf(v)} y2={padT + plotH + 5} stroke="#475569" />
-              <text
-                x={xOf(v)}
-                y={padT + plotH + 18}
-                textAnchor="middle"
-                fill="#94a3b8"
-                fontSize="10"
-                fontFamily="monospace"
-              >
-                {v.toFixed(3)}
-              </text>
-            </g>
-          ))}
-
-          {/* X Axis Label */}
-          <text x={padL + plotW / 2} y={h - 10} textAnchor="middle" fill="#cbd5e1" fontSize="11" fontWeight="500">
-            sign(λ₂)ρ (a.u.) · 蓝色: 强吸引(氢键) | 绿色: 范德华/π-π堆积 | 红色: 位阻排斥
+          <text x={padL + plotW / 2} y={h - 6} textAnchor="middle" fill="#cbd5e1" fontSize="11">
+            sign(λ₂)ρ (a.u.)
           </text>
-
-          {/* Y Axis Label */}
           <text
             x={16}
             y={padT + plotH / 2}
             textAnchor="middle"
-            transform={`rotate(-90 16 ${padT + plotH / 2})`}
             fill="#cbd5e1"
             fontSize="11"
-            fontWeight="500"
+            transform={`rotate(-90 16 ${padT + plotH / 2})`}
           >
-            {isIgm ? 'δg_inter (分子间弱相互作用强度, a.u.)' : 'RDG (折减密度梯度, a.u.)'}
+            δg_inter / RDG (a.u.)
           </text>
-
-          {/* Hover highlight indicator */}
-          {hoveredPoint && (
-            <g>
-              <circle
-                cx={xOf(hoveredPoint.sign_lambda2_rho)}
-                cy={yOf(hoveredPoint.rdg)}
-                r={5}
-                fill="none"
-                stroke="#facc15"
-                strokeWidth="2"
-              />
-            </g>
-          )}
         </svg>
-
-        {/* Hover Point Tooltip */}
-        {hoveredPoint && mousePos && (
-          <div
-            className="pointer-events-none absolute px-2.5 py-1.5 rounded-lg bg-slate-950/90 border border-slate-700 text-[11px] font-mono shadow-2xl backdrop-blur text-slate-200 z-20"
-            style={{
-              left: Math.min(w - 180, Math.max(20, mousePos.x + 12)),
-              top: Math.max(10, mousePos.y - 48),
-            }}
-          >
-            <div className="font-semibold text-cyan-300">
-              sign(λ₂)ρ = {hoveredPoint.sign_lambda2_rho.toFixed(4)} a.u.
-            </div>
-            <div className="text-slate-300">
-              {isIgm ? 'δg_inter' : 'RDG'} = {hoveredPoint.rdg.toFixed(4)} a.u.
-            </div>
-            <div className="text-[10px] text-slate-400">
-              {hoveredPoint.sign_lambda2_rho < -0.015
-                ? '强相互作用 (强吸引/氢键)'
-                : hoveredPoint.sign_lambda2_rho > 0.015
-                  ? '空间位阻排斥 (环张力/碰撞)'
-                  : '弱相互作用 (范德华 / π-π 堆积)'}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
 };
 
+// 7. LineProfileChart: 1D Real Space Density Line Profile
 export const LineProfileChart: React.FC<{
   points: LinePoint[];
   title: string;
 }> = ({ points, title }) => {
   if (points.length === 0) return null;
-  const w = 720;
-  const h = 250;
+  const [isMaximized, setIsMaximized] = useState(false);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isMaximized) setIsMaximized(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isMaximized]);
+
+  const w = isMaximized ? 1100 : 720;
+  const h = isMaximized ? 560 : 250;
   const padL = 62;
   const padR = 24;
   const padT = 30;
@@ -969,30 +986,80 @@ export const LineProfileChart: React.FC<{
     .join(' ');
 
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-auto rounded-xl bg-[#090e17] border border-slate-800">
-      <text x={padL} y={19} fill="#cbd5e1" fontSize="12" fontWeight="600">
-        {title} ({points.length} 采样点)
-      </text>
-      <path d={linePath} fill="none" stroke="#22d3ee" strokeWidth="2.2" />
-      <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="#475569" />
-      <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke="#475569" />
-      {[0, 0.25, 0.5, 0.75, 1].map((f, i) => {
-        const xv = minX + (maxX - minX) * f;
-        return (
-          <text key={i} x={xOf(xv)} y={padT + plotH + 15} textAnchor="middle" fill="#94a3b8" fontSize="10" fontFamily="monospace">
-            {xv.toFixed(2)}
+    <div
+      className={`glass-panel rounded-2xl p-4 transition-all duration-300 ${
+        isMaximized
+          ? 'fixed inset-4 z-50 bg-[#070b12]/95 backdrop-blur-2xl flex flex-col justify-between shadow-2xl border border-sky-500/40'
+          : 'space-y-3'
+      }`}
+    >
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-slate-200">
+            {title} ({points.length} 采样点)
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <Tooltip content="导出矢量 SVG 格式">
+            <button
+              onClick={() => downloadSvg(svgRef.current, `wavecraft_line_profile.svg`)}
+              className="p-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-sky-300 transition cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
+          <Tooltip content="导出高保真位图 PNG 格式">
+            <button
+              onClick={() => downloadPng(svgRef.current, `wavecraft_line_profile.png`, w, h)}
+              className="p-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-sky-300 transition cursor-pointer"
+            >
+              <Camera className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
+          <Tooltip content={isMaximized ? '退出全屏 (Esc)' : '全屏放大图表'}>
+            <button
+              onClick={() => setIsMaximized(!isMaximized)}
+              className={`p-1 rounded-lg border transition cursor-pointer ${
+                isMaximized
+                  ? 'bg-amber-500/20 border-amber-400/40 text-amber-200'
+                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-sky-300'
+              }`}
+            >
+              {isMaximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </button>
+          </Tooltip>
+        </div>
+      </div>
+
+      <div className="relative w-full flex items-center justify-center overflow-hidden">
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${w} ${h}`}
+          className="w-full h-auto rounded-xl bg-[#090e17] border border-slate-800"
+        >
+          <path d={linePath} fill="none" stroke="#22d3ee" strokeWidth="2.2" />
+          <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="#475569" />
+          <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke="#475569" />
+          {[0, 0.25, 0.5, 0.75, 1].map((f, i) => {
+            const xv = minX + (maxX - minX) * f;
+            return (
+              <text key={i} x={xOf(xv)} y={padT + plotH + 15} textAnchor="middle" fill="#94a3b8" fontSize="10" fontFamily="monospace">
+                {xv.toFixed(2)}
+              </text>
+            );
+          })}
+          <text x={padL - 8} y={padT + 8} textAnchor="end" fill="#94a3b8" fontSize="10" fontFamily="monospace">
+            {maxY.toExponential(1)}
           </text>
-        );
-      })}
-      <text x={padL - 8} y={padT + 8} textAnchor="end" fill="#94a3b8" fontSize="10" fontFamily="monospace">
-        {maxY.toExponential(1)}
-      </text>
-      <text x={padL - 8} y={padT + plotH} textAnchor="end" fill="#94a3b8" fontSize="10" fontFamily="monospace">
-        {minY.toExponential(1)}
-      </text>
-      <text x={padL + plotW / 2} y={h - 6} textAnchor="middle" fill="#cbd5e1" fontSize="11">
-        沿键轴路径距离 (Å)
-      </text>
-    </svg>
+          <text x={padL - 8} y={padT + plotH} textAnchor="end" fill="#94a3b8" fontSize="10" fontFamily="monospace">
+            {minY.toExponential(1)}
+          </text>
+          <text x={padL + plotW / 2} y={h - 6} textAnchor="middle" fill="#cbd5e1" fontSize="11">
+            沿键轴路径距离 (Å)
+          </text>
+        </svg>
+      </div>
+    </div>
   );
 };

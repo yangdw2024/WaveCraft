@@ -18,6 +18,8 @@ import {
 import { Molecule3DCanvas } from '../components/Molecule3DCanvas';
 import { ExportToolbar } from '../components/ExportToolbar';
 import { Tooltip } from '../components/Tooltip';
+import { ResizableSplitPane } from '../components/ResizableSplitPane';
+import { ExpandableConsole } from '../components/ExpandableConsole';
 
 export const DosWorkspace: React.FC<{
   inspection: MoleculeInspection | null;
@@ -106,52 +108,57 @@ export const DosWorkspace: React.FC<{
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
-        <div className="xl:col-span-8 glass-panel rounded-2xl p-4">
-          {curve ? (
-            <DosChart curve={curve} />
-          ) : (
-            <div className="h-[340px] flex items-center justify-center text-xs text-slate-500">
-              点击「生成 TDOS 谱图」绘制总态密度、占据态与虚态密度曲线
-            </div>
-          )}
-        </div>
-
-        <div className="xl:col-span-4 glass-panel rounded-2xl p-4">
-          <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-2.5">
-            分子轨道能级表 ({(orbitals.length ? orbitals : inspection?.orbitals || []).length})
-          </h3>
-          <div className="max-h-[320px] overflow-y-auto rounded-xl border border-slate-800">
-            <table className="w-full text-xs font-mono">
-              <thead className="bg-slate-900 text-slate-400 sticky top-0">
-                <tr>
-                  <th className="py-1.5 px-2 text-left">MO</th>
-                  <th className="py-1.5 px-2 text-right">能量 (eV)</th>
-                  <th className="py-1.5 px-2 text-right">占据</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {(orbitals.length ? orbitals : inspection?.orbitals || []).map((o) => (
-                  <tr
-                    key={`${o.index}-${o.spin_type}`}
-                    className={
-                      o.label === 'HOMO' || o.label === 'LUMO'
-                        ? 'bg-sky-500/10 text-sky-200 font-semibold'
-                        : 'hover:bg-slate-800/40'
-                    }
-                  >
-                    <td className="py-1 px-2">
-                      #{o.index} {o.label ? `(${o.label})` : ''}
-                    </td>
-                    <td className="py-1 px-2 text-right">{o.energy_ev.toFixed(3)}</td>
-                    <td className="py-1 px-2 text-right">{o.occupancy.toFixed(2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <ResizableSplitPane
+        storageKey="dos_workspace"
+        defaultSplit={66}
+        left={
+          <div className="glass-panel rounded-2xl p-4">
+            {curve ? (
+              <DosChart curve={curve} />
+            ) : (
+              <div className="h-[340px] flex items-center justify-center text-xs text-slate-500">
+                点击「生成 TDOS 谱图」绘制总态密度、占据态与虚态密度曲线
+              </div>
+            )}
           </div>
-        </div>
-      </div>
+        }
+        right={
+          <div className="glass-panel rounded-2xl p-4">
+            <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-2.5">
+              分子轨道能级表 ({(orbitals.length ? orbitals : inspection?.orbitals || []).length})
+            </h3>
+            <div className="max-h-[320px] overflow-y-auto rounded-xl border border-slate-800">
+              <table className="w-full text-xs font-mono">
+                <thead className="bg-slate-900 text-slate-400 sticky top-0">
+                  <tr>
+                    <th className="py-1.5 px-2 text-left">MO</th>
+                    <th className="py-1.5 px-2 text-right">能量 (eV)</th>
+                    <th className="py-1.5 px-2 text-right">占据</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {(orbitals.length ? orbitals : inspection?.orbitals || []).map((o) => (
+                    <tr
+                      key={`${o.index}-${o.spin_type}`}
+                      className={
+                        o.label === 'HOMO' || o.label === 'LUMO'
+                          ? 'bg-sky-500/10 text-sky-200 font-semibold'
+                          : 'hover:bg-slate-800/40'
+                      }
+                    >
+                      <td className="py-1 px-2">
+                        #{o.index} {o.label ? `(${o.label})` : ''}
+                      </td>
+                      <td className="py-1 px-2 text-right">{o.energy_ev.toFixed(3)}</td>
+                      <td className="py-1 px-2 text-right">{o.occupancy.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        }
+      />
     </div>
   );
 };
@@ -299,47 +306,52 @@ export const SpectrumWorkspace: React.FC<{
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
-        <div className="xl:col-span-8 glass-panel rounded-2xl p-4">
-          {curve && curve.peaks.length > 0 ? (
-            <SpectrumChart curve={curve} />
-          ) : (
-            <div className="h-[340px] flex items-center justify-center text-xs text-slate-500">
-              选择含频率/TDDFT 激发态的 .out/.log 文件并点击「模拟展宽光谱」
-            </div>
-          )}
-        </div>
-
-        <div className="xl:col-span-4 glass-panel rounded-2xl p-4">
-          <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-2.5">
-            跃迁 / 振动峰列表
-          </h3>
-          <div className="max-h-[320px] overflow-y-auto rounded-xl border border-slate-800">
-            <table className="w-full text-xs font-mono">
-              <thead className="bg-slate-900 text-slate-400 sticky top-0">
-                <tr>
-                  <th className="py-1.5 px-2 text-left">#</th>
-                  <th className="py-1.5 px-2 text-right">位置</th>
-                  <th className="py-1.5 px-2 text-right">强度</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {(curve?.peaks || []).map((p) => (
-                  <tr key={p.index} className="hover:bg-slate-800/40">
-                    <td className="py-1 px-2 text-slate-400">{p.index}</td>
-                    <td className="py-1 px-2 text-right text-violet-300">
-                      {p.x_value.toFixed(2)}
-                    </td>
-                    <td className="py-1 px-2 text-right text-slate-200">
-                      {p.intensity.toFixed(4)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <ResizableSplitPane
+        storageKey="spectrum_workspace"
+        defaultSplit={66}
+        left={
+          <div className="glass-panel rounded-2xl p-4">
+            {curve && curve.peaks.length > 0 ? (
+              <SpectrumChart curve={curve} />
+            ) : (
+              <div className="h-[340px] flex items-center justify-center text-xs text-slate-500">
+                选择含频率/TDDFT 激发态的 .out/.log 文件并点击「模拟展宽光谱」
+              </div>
+            )}
           </div>
-        </div>
-      </div>
+        }
+        right={
+          <div className="glass-panel rounded-2xl p-4">
+            <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-2.5">
+              跃迁 / 振动峰列表
+            </h3>
+            <div className="max-h-[320px] overflow-y-auto rounded-xl border border-slate-800">
+              <table className="w-full text-xs font-mono">
+                <thead className="bg-slate-900 text-slate-400 sticky top-0">
+                  <tr>
+                    <th className="py-1.5 px-2 text-left">#</th>
+                    <th className="py-1.5 px-2 text-right">位置</th>
+                    <th className="py-1.5 px-2 text-right">强度</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {(curve?.peaks || []).map((p) => (
+                    <tr key={p.index} className="hover:bg-slate-800/40">
+                      <td className="py-1 px-2 text-slate-400">{p.index}</td>
+                      <td className="py-1 px-2 text-right text-violet-300">
+                        {p.x_value.toFixed(2)}
+                      </td>
+                      <td className="py-1 px-2 text-right text-slate-200">
+                        {p.intensity.toFixed(4)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        }
+      />
     </div>
   );
 };
@@ -625,69 +637,76 @@ export const WeakInteractionWorkspace: React.FC<{
 
       {/* Main Analysis Visual Area according to LayoutMode */}
       {layoutMode === 'side-by-side' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Left Column: 3D Viewport */}
-          <div className="space-y-4">
-            {outputMode !== 'scatter' && (
-              <Molecule3DCanvas
-                atoms={inspection?.atoms || []}
-                bonds={inspection?.bonds || []}
-                isosurface={isosurface}
-                isoOpacity={isoOpacity}
-                onIsoOpacityChange={setIsoOpacity}
-                onSelectFragmentAtoms={setFragmentAtoms}
-                title={`3D ${method} 相互作用等值面 (BGR 色彩映射)`}
-                defaultHeight={580}
-                resizable={true}
-              />
-            )}
-          </div>
-
-          {/* Right Column: 2D Scatter Chart + Legends + Logs */}
-          <div className="space-y-4">
-            {outputMode !== 'cube' &&
-              (points.length > 0 ? (
-                <NciScatterChart points={points} method={method} />
-              ) : (
-                <div className="h-[360px] flex flex-col items-center justify-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-2xl p-6 bg-slate-950/40">
-                  <Sparkles className="w-8 h-8 text-slate-600 mb-2" />
-                  <p className="font-medium text-slate-300">未生成相互作用散点数据</p>
-                  <p className="text-[11px] mt-1 text-slate-500">
-                    点击上方「计算弱相互作用」即可即时生成 {isIgm ? 'δg_inter vs sign(λ₂)ρ' : 'RDG vs sign(λ₂)ρ'} 散点图
-                  </p>
-                </div>
-              ))}
-
-            {/* Scientific Criteria & Raw Logs */}
-            <div className="glass-panel rounded-2xl p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-                  物理判据标准与 Multiwfn 计算日志
-                </h3>
-                <span className="text-[10px] font-mono text-slate-500">
-                  {points.length} 散点 · {isosurface ? (isosurface.positive.triangle_count + (isosurface.negative?.triangle_count || 0)) : 0} 三角面
-                </span>
-              </div>
-              <div className="grid grid-cols-3 gap-2 text-[11px]">
-                <div className="p-2 rounded-xl bg-blue-500/10 border border-blue-500/30 text-blue-300">
-                  <b>蓝色 (sign &lt; -0.015)</b>
-                  <div className="text-[10px] text-blue-200/80">强吸引：经典氢键、卤键</div>
-                </div>
-                <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">
-                  <b>绿色 (sign &approx; 0.0)</b>
-                  <div className="text-[10px] text-emerald-200/80">弱吸引：范德华 / π-π 堆积夹心</div>
-                </div>
-                <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300">
-                  <b>红色 (sign &gt; +0.015)</b>
-                  <div className="text-[10px] text-rose-200/80">强排斥：空间位阻排斥、环内张力</div>
-                </div>
-              </div>
-              <pre className="h-[180px] overflow-auto rounded-xl bg-slate-950 border border-slate-800 p-3 text-[11px] font-mono text-slate-300 whitespace-pre-wrap select-all">
-                {stdout || 'Multiwfn 弱相互作用引擎输出将显示在此处...'}
-              </pre>
+        <ResizableSplitPane
+          storageKey="weak_interaction"
+          defaultSplit={52}
+          left={
+            <div className="space-y-4">
+              {outputMode !== 'scatter' && (
+                <Molecule3DCanvas
+                  atoms={inspection?.atoms || []}
+                  bonds={inspection?.bonds || []}
+                  isosurface={isosurface}
+                  isoOpacity={isoOpacity}
+                  onIsoOpacityChange={setIsoOpacity}
+                  onSelectFragmentAtoms={setFragmentAtoms}
+                  title={`3D ${method} 相互作用等值面 (BGR 色彩映射)`}
+                  defaultHeight={580}
+                  resizable={true}
+                />
+              )}
             </div>
-          </div>
-        </div>
+          }
+          right={
+            <div className="space-y-4">
+              {outputMode !== 'cube' &&
+                (points.length > 0 ? (
+                  <NciScatterChart points={points} method={method} />
+                ) : (
+                  <div className="h-[340px] flex flex-col items-center justify-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-2xl p-6 bg-slate-950/40">
+                    <Sparkles className="w-8 h-8 text-slate-600 mb-2" />
+                    <p className="font-medium text-slate-300">未生成相互作用散点数据</p>
+                    <p className="text-[11px] mt-1 text-slate-500">
+                      点击上方「计算弱相互作用」即可即时生成 {isIgm ? 'δg_inter vs sign(λ₂)ρ' : 'RDG vs sign(λ₂)ρ'} 散点图
+                    </p>
+                  </div>
+                ))}
+
+              {/* Scientific Criteria & Raw Logs */}
+              <div className="glass-panel rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+                    物理判据标准与 Multiwfn 计算日志
+                  </h3>
+                  <span className="text-[10px] font-mono text-slate-500">
+                    {points.length} 散点 · {isosurface ? (isosurface.positive.triangle_count + (isosurface.negative?.triangle_count || 0)) : 0} 三角面
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-[11px]">
+                  <div className="p-2 rounded-xl bg-blue-500/10 border border-blue-500/30 text-blue-300">
+                    <b>蓝色 (sign &lt; -0.015)</b>
+                    <div className="text-[10px] text-blue-200/80">强吸引：经典氢键、卤键</div>
+                  </div>
+                  <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">
+                    <b>绿色 (sign &approx; 0.0)</b>
+                    <div className="text-[10px] text-emerald-200/80">弱吸引：范德华 / π-π 堆积夹心</div>
+                  </div>
+                  <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300">
+                    <b>红色 (sign &gt; +0.015)</b>
+                    <div className="text-[10px] text-rose-200/80">强排斥：空间位阻排斥、环内张力</div>
+                  </div>
+                </div>
+              </div>
+
+              <ExpandableConsole
+                title="Multiwfn 弱相互作用引擎输出流"
+                content={stdout}
+                placeholder="Multiwfn 弱相互作用引擎输出将显示在此处..."
+                initialHeight={180}
+              />
+            </div>
+          }
+        />
       )}
 
       {layoutMode === 'stacked' && (
@@ -715,14 +734,12 @@ export const WeakInteractionWorkspace: React.FC<{
               </div>
             ))}
 
-          <div className="glass-panel rounded-2xl p-4 space-y-3">
-            <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-              物理判据与原始计算输出
-            </h3>
-            <pre className="h-[180px] overflow-auto rounded-xl bg-slate-950 border border-slate-800 p-3 text-[11px] font-mono text-slate-300 whitespace-pre-wrap">
-              {stdout || 'Multiwfn 弱相互作用引擎输出将显示在此处...'}
-            </pre>
-          </div>
+          <ExpandableConsole
+            title="物理判据与原始计算输出"
+            content={stdout}
+            placeholder="Multiwfn 弱相互作用引擎输出将显示在此处..."
+            initialHeight={180}
+          />
         </div>
       )}
 

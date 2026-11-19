@@ -270,6 +270,8 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
   const sceneRef = useRef<THREE.Scene | null>(null);
   const atomMeshesRef = useRef<THREE.Mesh[]>([]);
   const centerOffsetRef = useRef<THREE.Vector3>(new THREE.Vector3());
+  const lastMoleculeKeyRef = useRef<string>('');
+  const hasFittedVisibleRef = useRef<boolean>(false);
 
   // Dynamic Viewport Height & Fullscreen Maximize state
   const initialHeight = useMemo(() => {
@@ -406,7 +408,11 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
       const d = Math.hypot(a.x - center.x, a.y - center.y, a.z - center.z);
       if (d > maxR) maxR = d;
     }
-    const dist = maxR * (isosurface ? 2.6 : 2.1);
+    const dist = Math.max(maxR * (isosurface ? 2.55 : 2.15), 3.2);
+
+    // Reset control targets and cancel any lingering momentum
+    ctrl.rotVelocity.set(0, 0);
+    ctrl.panVelocity.set(0, 0);
     ctrl.target.set(0, 0, 0);
 
     if (view === 'side') {
@@ -422,11 +428,12 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
       cam.position.set(0, 0, dist * 1.5);
       cam.up.set(0, 1, 0);
     } else {
-      // Reset Isometric
+      // Reset Isometric dead center
       cam.position.set(dist * 1.15, dist * 0.85, dist * 1.35);
       cam.up.set(0, 1, 0);
     }
     cam.lookAt(0, 0, 0);
+    cam.updateProjectionMatrix();
     ctrl.update();
   };
 
@@ -563,6 +570,9 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     renderer.setSize(width, height);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.15;
+    renderer.domElement.style.display = 'block';
+    renderer.domElement.style.width = '100%';
+    renderer.domElement.style.height = '100%';
     el.innerHTML = '';
     el.appendChild(renderer.domElement);
     rendererRef.current = renderer;
@@ -593,14 +603,28 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     fillLight.position.set(0, -10, 6);
     scene.add(fillLight);
 
+    let lastObservedW = 0;
     const ro = new ResizeObserver(() => {
       if (!containerRef.current || !rendererRef.current || !cameraRef.current) return;
-      const w = Math.max(containerRef.current.clientWidth, 200);
-      const h = Math.max(containerRef.current.clientHeight, 200);
+      const w = containerRef.current.clientWidth;
+      const h = containerRef.current.clientHeight;
+      if (w <= 10 || h <= 10) {
+        lastObservedW = 0;
+        return; // workspace is hidden (display: none)
+      }
       cameraRef.current.aspect = w / h;
       cameraRef.current.updateProjectionMatrix();
       rendererRef.current.setSize(w, h);
       controlsRef.current?.handleResize?.();
+
+      // When tab switches from hidden (w=0) to visible, or hasn't been fitted yet, automatically center camera!
+      if ((lastObservedW <= 10 && w > 50) || !hasFittedVisibleRef.current) {
+        hasFittedVisibleRef.current = true;
+        requestAnimationFrame(() => {
+          setCameraPreset('fit');
+        });
+      }
+      lastObservedW = w;
     });
     ro.observe(el);
 
@@ -907,18 +931,15 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
 
     scene.add(group);
 
-    // Auto-fit camera distance on atom set change
+    // Auto-center and fit camera squarely whenever molecule changes or loads
     if (atoms.length > 0) {
-      let maxR = 1.8;
-      for (const a of atoms) {
-        const d = Math.hypot(a.x - center.x, a.y - center.y, a.z - center.z);
-        if (d > maxR) maxR = d;
-      }
-      if (camera.position.length() < 1.0 || prevGroup === undefined) {
-        const distMult = isosurface ? 2.55 : 2.15;
-        camera.position.set(maxR * distMult, maxR * 1.35, maxR * (distMult + 0.5));
-        controls.target.set(0, 0, 0);
-        controls.update();
+      const currentMolKey = `${atoms.length}_${atoms[0].x.toFixed(2)}_${atoms[atoms.length - 1].z.toFixed(2)}`;
+      if (lastMoleculeKeyRef.current !== currentMolKey) {
+        lastMoleculeKeyRef.current = currentMolKey;
+        hasFittedVisibleRef.current = false;
+        requestAnimationFrame(() => {
+          setCameraPreset('fit');
+        });
       }
     }
   }, [
@@ -968,13 +989,7 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
   };
 
   const recenterOrigin = () => {
-    const cam = cameraRef.current;
-    const ctrl = controlsRef.current;
-    if (!cam || !ctrl) return;
-    const delta = ctrl.target.clone();
-    cam.position.sub(delta);
-    ctrl.target.set(0, 0, 0);
-    ctrl.update();
+    setCameraPreset('fit');
   };
 
   const selectionRangeExpr = useMemo(

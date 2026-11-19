@@ -40,6 +40,7 @@ import { Molecule3DCanvas } from '../components/Molecule3DCanvas';
 import { ExportToolbar } from '../components/ExportToolbar';
 import { ExpandableConsole } from '../components/ExpandableConsole';
 import { Tooltip } from '../components/Tooltip';
+import { ResizableSplitPane } from '../components/ResizableSplitPane';
 
 export const AdvancedToolsWorkspace: React.FC<{
   inspection: MoleculeInspection | null;
@@ -209,188 +210,191 @@ export const AdvancedToolsWorkspace: React.FC<{
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
-        {/* AIM 3D Topology */}
-        <div className="xl:col-span-7 space-y-4">
-          <div className="glass-panel rounded-2xl p-4 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <GitMerge className="w-4 h-4 text-orange-400" />
-              <h3 className="text-sm font-bold text-slate-100">
-                AIM QTAIM 临界点拓扑分析
-              </h3>
-            </div>
-            <div className="flex items-center gap-2">
-              <ExportToolbar
-                title={`${inspection?.file_name || 'mol'}_aim_cps`}
-                rows={cps}
-                rawText={stdout}
-              />
-              <button
-                disabled={busy || !inspection}
-                onClick={runAim}
-                className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 text-slate-950 font-bold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-              >
-                {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                <span>搜索全部临界点</span>
-              </button>
-            </div>
-          </div>
-
-          <Molecule3DCanvas
-            atoms={inspection?.atoms || []}
-            bonds={inspection?.bonds || []}
-            criticalPoints={cps}
-            title={`3D AIM 临界点图谱 (${cps.length} 个临界点)`}
-            heightClass="h-[370px]"
-          />
-
-          <div className="glass-panel rounded-2xl p-4">
-            <div className="max-h-[190px] overflow-y-auto rounded-xl border border-slate-800">
-              <table className="w-full text-xs font-mono">
-                <thead className="bg-slate-900 text-slate-400 sticky top-0">
-                  <tr>
-                    <th className="py-1.5 px-2 text-left">CP</th>
-                    <th className="py-1.5 px-2 text-left">类型</th>
-                    <th className="py-1.5 px-2 text-right">坐标 (Å)</th>
-                    <th className="py-1.5 px-2 text-right">ρ(r)</th>
-                    <th className="py-1.5 px-2 text-right">∇²ρ(r)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60">
-                  {cps.map((cp) => (
-                    <tr key={cp.index} className="hover:bg-slate-800/40">
-                      <td className="py-1 px-2 text-slate-300">#{cp.index}</td>
-                      <td className="py-1 px-2 text-orange-300">{cp.cp_type_label}</td>
-                      <td className="py-1 px-2 text-right text-slate-400">
-                        ({cp.x.toFixed(2)}, {cp.y.toFixed(2)}, {cp.z.toFixed(2)})
-                      </td>
-                      <td className="py-1 px-2 text-right text-sky-300">
-                        {cp.rho !== undefined && cp.rho !== null ? cp.rho.toFixed(4) : '—'}
-                      </td>
-                      <td className="py-1 px-2 text-right text-cyan-300">
-                        {cp.laplacian !== undefined && cp.laplacian !== null
-                          ? cp.laplacian.toFixed(4)
-                          : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        {/* Right: Aromaticity & Export */}
-        <div className="xl:col-span-5 space-y-4">
-          {/* Aromaticity */}
-          <div className="glass-panel rounded-2xl p-4 space-y-3">
-            <div className="flex items-center justify-between">
+      <ResizableSplitPane
+        storageKey="aim_topology"
+        defaultSplit={58}
+        left={
+          <div className="space-y-4">
+            <div className="glass-panel rounded-2xl p-4 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <Hexagon className="w-4 h-4 text-sky-400" />
+                <GitMerge className="w-4 h-4 text-orange-400" />
                 <h3 className="text-sm font-bold text-slate-100">
-                  芳香性与电子离域分析 (Menu 25)
+                  AIM QTAIM 临界点拓扑分析
                 </h3>
               </div>
-            </div>
-            <div className="flex gap-2">
-              <select
-                value={aromMethod}
-                onChange={(e) => setAromMethod(e.target.value)}
-                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100"
-              >
-                <option value="Shannon">Shannon 芳香性指数</option>
-                <option value="HOMA">HOMA / Bird 几何芳香性</option>
-                <option value="FLU">FLU 芳香性波动指数</option>
-                <option value="PDI">PDI 对位离域指数</option>
-              </select>
-              <button
-                disabled={busy || !inspection}
-                onClick={runAromaticity}
-                className="px-4 py-1.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sky-200 border border-sky-400/35 text-xs font-semibold cursor-pointer disabled:opacity-50"
-              >
-                计算指数
-              </button>
-            </div>
-            {aromRes && (
-              <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-                <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
-                  Shannon: <b className="text-sky-300">{aromRes.shannon_index ?? '—'}</b>
-                </div>
-                <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
-                  HOMA: <b className="text-emerald-300">{aromRes.homa ?? '—'}</b>
-                </div>
-                <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
-                  FLU: <b className="text-violet-300">{aromRes.flu ?? '—'}</b>
-                </div>
-                <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
-                  PDI: <b className="text-amber-300">{aromRes.pdi ?? '—'}</b>
-                </div>
+              <div className="flex items-center gap-2">
+                <ExportToolbar
+                  title={`${inspection?.file_name || 'mol'}_aim_cps`}
+                  rows={cps}
+                  rawText={stdout}
+                />
+                <button
+                  disabled={busy || !inspection}
+                  onClick={runAim}
+                  className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 text-slate-950 font-bold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                  <span>搜索全部临界点</span>
+                </button>
               </div>
-            )}
-          </div>
-
-          {/* Multi-format Converter */}
-          <div className="glass-panel rounded-2xl p-4 space-y-3">
-            <div className="flex items-center gap-2">
-              <Share2 className="w-4 h-4 text-emerald-400" />
-              <h3 className="text-sm font-bold text-slate-100">
-                波函数与结构格式转换 (Menu 100-2)
-              </h3>
             </div>
-            <div className="flex gap-2">
-              <select
-                value={exportFmt}
-                onChange={(e) => setExportFmt(e.target.value)}
-                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100"
-              >
-                <option value="xyz">XYZ 笛卡尔坐标 (.xyz)</option>
-                <option value="pdb">PDB 结构格式 (.pdb)</option>
-                <option value="wfn">WFN 波函数格式 (.wfn)</option>
-                <option value="wfx">WFX 扩展波函数 (.wfx)</option>
-                <option value="molden">Molden 格式 (.molden)</option>
-                <option value="mwfn">Multiwfn 现代波函数 (.mwfn)</option>
-                <option value="fch">Gaussian FCHK (.fch)</option>
-              </select>
-              <button
-                disabled={busy || !inspection}
-                onClick={runExport}
-                className="px-4 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 border border-emerald-400/35 text-xs font-semibold cursor-pointer disabled:opacity-50"
-              >
-                转换导出
-              </button>
-            </div>
-            {exportedInfo && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-emerald-300 font-mono">
-                    {exportedInfo.filename} ({(exportedInfo.size_bytes / 1024).toFixed(1)} KB)
-                  </span>
-                  <a
-                    href={api.downloadUrl(exportedInfo.exported_path)}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500 text-slate-950 font-bold hover:bg-emerald-400"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>下载文件</span>
-                  </a>
-                </div>
-                <pre className="max-h-36 overflow-auto rounded-xl bg-slate-950 border border-slate-800 p-2.5 text-[11px] font-mono text-slate-300">
-                  {exportedInfo.preview}
-                </pre>
-              </div>
-            )}
-          </div>
 
-          <div className="glass-panel rounded-2xl p-4">
-            <ExpandableConsole
-              title="原始计算输出"
-              content={stdout}
-              placeholder="执行 AIM 或芳香性分析后，Multiwfn 终端输出将显示于此。"
-              initialHeight={180}
-              onClear={() => setStdout('')}
+            <Molecule3DCanvas
+              atoms={inspection?.atoms || []}
+              bonds={inspection?.bonds || []}
+              criticalPoints={cps}
+              title={`3D AIM 临界点图谱 (${cps.length} 个临界点)`}
+              heightClass="h-[420px]"
             />
+
+            <div className="glass-panel rounded-2xl p-4">
+              <div className="max-h-[200px] overflow-y-auto rounded-xl border border-slate-800">
+                <table className="w-full text-xs font-mono">
+                  <thead className="bg-slate-900 text-slate-400 sticky top-0">
+                    <tr>
+                      <th className="py-1.5 px-2 text-left">CP</th>
+                      <th className="py-1.5 px-2 text-left">类型</th>
+                      <th className="py-1.5 px-2 text-right">坐标 (Å)</th>
+                      <th className="py-1.5 px-2 text-right">ρ(r)</th>
+                      <th className="py-1.5 px-2 text-right">∇²ρ(r)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {cps.map((cp) => (
+                      <tr key={cp.index} className="hover:bg-slate-800/40">
+                        <td className="py-1 px-2 text-slate-300">#{cp.index}</td>
+                        <td className="py-1 px-2 text-orange-300">{cp.cp_type_label}</td>
+                        <td className="py-1 px-2 text-right text-slate-400">
+                          ({cp.x.toFixed(2)}, {cp.y.toFixed(2)}, {cp.z.toFixed(2)})
+                        </td>
+                        <td className="py-1 px-2 text-right text-sky-300">
+                          {cp.rho !== undefined && cp.rho !== null ? cp.rho.toFixed(4) : '—'}
+                        </td>
+                        <td className="py-1 px-2 text-right text-cyan-300">
+                          {cp.laplacian !== undefined && cp.laplacian !== null
+                            ? cp.laplacian.toFixed(4)
+                            : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        }
+        right={
+          <div className="space-y-4">
+            {/* Aromaticity */}
+            <div className="glass-panel rounded-2xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Hexagon className="w-4 h-4 text-sky-400" />
+                  <h3 className="text-sm font-bold text-slate-100">
+                    芳香性与电子离域分析 (Menu 25)
+                  </h3>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <select
+                  value={aromMethod}
+                  onChange={(e) => setAromMethod(e.target.value)}
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100"
+                >
+                  <option value="Shannon">Shannon 芳香性指数</option>
+                  <option value="HOMA">HOMA / Bird 几何芳香性</option>
+                  <option value="FLU">FLU 芳香性波动指数</option>
+                  <option value="PDI">PDI 对位离域指数</option>
+                </select>
+                <button
+                  disabled={busy || !inspection}
+                  onClick={runAromaticity}
+                  className="px-4 py-1.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sky-200 border border-sky-400/35 text-xs font-semibold cursor-pointer disabled:opacity-50"
+                >
+                  计算指数
+                </button>
+              </div>
+              {aromRes && (
+                <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                  <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
+                    Shannon: <b className="text-sky-300">{aromRes.shannon_index ?? '—'}</b>
+                  </div>
+                  <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
+                    HOMA: <b className="text-emerald-300">{aromRes.homa ?? '—'}</b>
+                  </div>
+                  <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
+                    FLU: <b className="text-violet-300">{aromRes.flu ?? '—'}</b>
+                  </div>
+                  <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
+                    PDI: <b className="text-amber-300">{aromRes.pdi ?? '—'}</b>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Multi-format Converter */}
+            <div className="glass-panel rounded-2xl p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <Share2 className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-sm font-bold text-slate-100">
+                  波函数与结构格式转换 (Menu 100-2)
+                </h3>
+              </div>
+              <div className="flex gap-2">
+                <select
+                  value={exportFmt}
+                  onChange={(e) => setExportFmt(e.target.value)}
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-100"
+                >
+                  <option value="xyz">XYZ 笛卡尔坐标 (.xyz)</option>
+                  <option value="pdb">PDB 结构格式 (.pdb)</option>
+                  <option value="wfn">WFN 波函数格式 (.wfn)</option>
+                  <option value="wfx">WFX 扩展波函数 (.wfx)</option>
+                  <option value="molden">Molden 格式 (.molden)</option>
+                  <option value="mwfn">Multiwfn 现代波函数 (.mwfn)</option>
+                  <option value="fch">Gaussian FCHK (.fch)</option>
+                </select>
+                <button
+                  disabled={busy || !inspection}
+                  onClick={runExport}
+                  className="px-4 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 border border-emerald-400/35 text-xs font-semibold cursor-pointer disabled:opacity-50"
+                >
+                  转换导出
+                </button>
+              </div>
+              {exportedInfo && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-emerald-300 font-mono">
+                      {exportedInfo.filename} ({(exportedInfo.size_bytes / 1024).toFixed(1)} KB)
+                    </span>
+                    <a
+                      href={api.downloadUrl(exportedInfo.exported_path)}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500 text-slate-950 font-bold hover:bg-emerald-400"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>下载文件</span>
+                    </a>
+                  </div>
+                  <pre className="max-h-36 overflow-auto rounded-xl bg-slate-950 border border-slate-800 p-2.5 text-[11px] font-mono text-slate-300">
+                    {exportedInfo.preview}
+                  </pre>
+                </div>
+              )}
+            </div>
+
+            <div className="glass-panel rounded-2xl p-4">
+              <ExpandableConsole
+                title="原始计算输出"
+                content={stdout}
+                placeholder="执行 AIM 或芳香性分析后，Multiwfn 终端输出将显示于此。"
+                initialHeight={180}
+                onClear={() => setStdout('')}
+              />
+            </div>
+          </div>
+        }
+      />
 
       {/* Fuzzy Atomic Space (Menu 15) & CDFT + Multipole (Menu 22 & 300-5) */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">

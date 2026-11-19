@@ -12,6 +12,7 @@ import { Heatmap2DCanvas, type ColormapName } from '../components/Heatmap2DCanva
 import { Molecule3DCanvas } from '../components/Molecule3DCanvas';
 import { LineProfileChart } from '../components/ScientificChart';
 import { ExportToolbar } from '../components/ExportToolbar';
+import { ResizableSplitPane } from '../components/ResizableSplitPane';
 
 interface Props {
   inspection: MoleculeInspection | null;
@@ -213,95 +214,100 @@ export const RealSpaceWorkspace: React.FC<Props> = ({ inspection, functions }) =
       )}
 
       {/* Dual View: Left 2D Heatmap, Right 3D Isosurface */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
-        <div className="xl:col-span-6 glass-panel rounded-2xl p-4 space-y-3">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2">
-              <Sliders className="w-4 h-4 text-cyan-400" />
-              <h3 className="text-xs font-bold text-slate-100">
-                2D 切面分布热图 ({plane.toUpperCase()})
-              </h3>
-            </div>
-            <div className="flex items-center gap-3 text-xs text-slate-300">
-              <label className="flex items-center gap-1 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={showContours}
-                  onChange={(e) => setShowContours(e.target.checked)}
-                  className="accent-sky-400"
-                />
-                <span>等高线</span>
-              </label>
-              <label className="flex items-center gap-1 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={showAtoms}
-                  onChange={(e) => setShowAtoms(e.target.checked)}
-                  className="accent-sky-400"
-                />
-                <span>原子投影</span>
-              </label>
-            </div>
-          </div>
-
-          {slice ? (
-            <>
-              <Heatmap2DCanvas
-                slice={slice}
-                colormap={colormap}
-                showAtoms={showAtoms}
-                showContours={showContours}
-              />
-              <div className="flex items-center gap-3 text-xs">
-                <span className="text-slate-400 shrink-0">
-                  切面层 ({slice.slice_index}/{slice.max_index}) ·{' '}
-                  {slice.slice_coord_angstrom.toFixed(2)} Å
-                </span>
-                <input
-                  type="range"
-                  min={0}
-                  max={slice.max_index}
-                  value={slice.slice_index}
-                  onChange={(e) => handlePlaneOrIndexChange(plane, Number(e.target.value))}
-                  className="flex-1 accent-sky-400 cursor-pointer"
-                />
+      <ResizableSplitPane
+        storageKey="realspace_workspace"
+        defaultSplit={50}
+        left={
+          <div className="glass-panel rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-cyan-400" />
+                <h3 className="text-xs font-bold text-slate-100">
+                  2D 切面分布热图 ({plane.toUpperCase()})
+                </h3>
               </div>
-            </>
-          ) : (
-            <div className="h-[460px] rounded-xl border border-dashed border-slate-800 flex flex-col items-center justify-center text-slate-500">
-              <Box className="w-8 h-8 mb-2 text-slate-600" />
-              <p className="text-xs">点击「计算 2D/3D 实空间场」生成交互式热图</p>
+              <div className="flex items-center gap-3 text-xs text-slate-300">
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showContours}
+                    onChange={(e) => setShowContours(e.target.checked)}
+                    className="accent-sky-400"
+                  />
+                  <span>等高线</span>
+                </label>
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showAtoms}
+                    onChange={(e) => setShowAtoms(e.target.checked)}
+                    className="accent-sky-400"
+                  />
+                  <span>原子投影</span>
+                </label>
+              </div>
             </div>
-          )}
-        </div>
 
-        <div className="xl:col-span-6 space-y-3">
-          <Molecule3DCanvas
-            atoms={inspection?.atoms || []}
-            bonds={inspection?.bonds || []}
-            isosurface={isosurface}
-            isoOpacity={isoOpacity}
-            onIsoOpacityChange={setIsoOpacity}
-            title={`3D 等值面体渲染 · ±${isovalue.toFixed(3)} a.u.`}
-            heightClass="h-[440px]"
-          />
-          <div className="glass-panel rounded-xl px-4 py-2.5 flex items-center gap-3 text-xs">
-            <span className="text-slate-400 shrink-0">3D 等值面阈值</span>
-            <input
-              type="range"
-              min={0.005}
-              max={0.35}
-              step={0.005}
-              value={isovalue}
-              onChange={(e) => handleIsoSlider(parseFloat(e.target.value))}
-              className="flex-1 accent-cyan-400 cursor-pointer"
-            />
-            <span className="font-mono text-cyan-300 w-20 text-right">
-              ±{isovalue.toFixed(3)}
-            </span>
+            {slice ? (
+              <>
+                <Heatmap2DCanvas
+                  slice={slice}
+                  colormap={colormap}
+                  showAtoms={showAtoms}
+                  showContours={showContours}
+                />
+                <div className="flex items-center gap-3 text-xs">
+                  <span className="text-slate-400 shrink-0">
+                    切面层 ({slice.slice_index}/{slice.max_index}) ·{' '}
+                    {slice.slice_coord_angstrom.toFixed(2)} Å
+                  </span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={slice.max_index}
+                    value={slice.slice_index}
+                    onChange={(e) => handlePlaneOrIndexChange(plane, Number(e.target.value))}
+                    className="flex-1 accent-sky-400 cursor-pointer"
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="h-[460px] rounded-xl border border-dashed border-slate-800 flex flex-col items-center justify-center text-slate-500">
+                <Box className="w-8 h-8 mb-2 text-slate-600" />
+                <p className="text-xs">点击「计算 2D/3D 实空间场」生成交互式热图</p>
+              </div>
+            )}
           </div>
-        </div>
-      </div>
+        }
+        right={
+          <div className="space-y-3">
+            <Molecule3DCanvas
+              atoms={inspection?.atoms || []}
+              bonds={inspection?.bonds || []}
+              isosurface={isosurface}
+              isoOpacity={isoOpacity}
+              onIsoOpacityChange={setIsoOpacity}
+              title={`3D 等值面体渲染 · ±${isovalue.toFixed(3)} a.u.`}
+              heightClass="h-[440px]"
+            />
+            <div className="glass-panel rounded-xl px-4 py-2.5 flex items-center gap-3 text-xs">
+              <span className="text-slate-400 shrink-0">3D 等值面阈值</span>
+              <input
+                type="range"
+                min={0.005}
+                max={0.35}
+                step={0.005}
+                value={isovalue}
+                onChange={(e) => handleIsoSlider(parseFloat(e.target.value))}
+                className="flex-1 accent-cyan-400 cursor-pointer"
+              />
+              <span className="font-mono text-cyan-300 w-20 text-right">
+                ±{isovalue.toFixed(3)}
+              </span>
+            </div>
+          </div>
+        }
+      />
 
       {/* 1D Line Profile Section (Menu 3) */}
       <div className="glass-panel rounded-2xl p-4 space-y-3">
