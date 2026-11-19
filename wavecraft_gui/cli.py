@@ -34,7 +34,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.version:
-        print("wavecraft-gui 4.0.4")
+        print("wavecraft-gui 4.0.5")
         return 0
 
     binary = _find_binary()

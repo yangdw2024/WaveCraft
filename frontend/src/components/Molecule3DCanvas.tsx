@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { TrackballControls } from 'three/examples/jsm/controls/TrackballControls.js';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { MolecularControls } from './MolecularControls';
 import {
   ArrowDown,
   ArrowLeft,
@@ -250,7 +249,7 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const controlsRef = useRef<any>(null);
+  const controlsRef = useRef<MolecularControls | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const atomMeshesRef = useRef<THREE.Mesh[]>([]);
   const centerOffsetRef = useRef<THREE.Vector3>(new THREE.Vector3());
@@ -269,8 +268,8 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
   const dragStartHeightRef = useRef(0);
 
   // Rotation control mode: trackball (unconstrained 360° tumbling with no polar lock) vs orbit
-  // Rotation control mode: orbit (stable upright center) vs trackball (free tumble)
-  const [controlMode, setControlMode] = useState<'trackball' | 'orbit'>('orbit');
+  // 3D Rotation control mode: 'free' = 360° unconstrained molecular trackball tumbling ("上下翻转"); 'horizon' = locked world-Y up
+  const [rotationMode, setRotationMode] = useState<'free' | 'horizon'>('free');
   const [dragAction, setDragAction] = useState<'rotate' | 'pan'>('rotate');
   const [selectMode, setSelectMode] = useState<'none' | 'box' | 'lasso'>('none');
   const [boxSelect, setBoxSelect] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
@@ -517,46 +516,15 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     el.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
-    const initControls = (mode: 'trackball' | 'orbit', action: 'rotate' | 'pan') => {
-      const prevTarget = controlsRef.current?.target ? controlsRef.current.target.clone() : new THREE.Vector3(0, 0, 0);
-      if (controlsRef.current) {
-        controlsRef.current.dispose();
-        controlsRef.current = null;
-      }
-      if (mode === 'trackball') {
-        const tb = new TrackballControls(camera, renderer.domElement);
-        tb.rotateSpeed = 2.2;
-        tb.zoomSpeed = 1.1;
-        tb.panSpeed = 0.28;
-        tb.noZoom = false;
-        tb.noPan = false;
-        tb.staticMoving = false;
-        tb.dynamicDampingFactor = 0.16;
-        tb.mouseButtons =
-          action === 'pan'
-            ? { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE }
-            : { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
-        tb.target.copy(prevTarget);
-        tb.handleResize();
-        controlsRef.current = tb;
-      } else {
-        const ob = new OrbitControls(camera, renderer.domElement);
-        ob.enableDamping = true;
-        ob.dampingFactor = 0.08;
-        ob.rotateSpeed = 0.78;
-        ob.zoomSpeed = 0.95;
-        ob.panSpeed = 0.35;
-        ob.enablePan = true;
-        ob.screenSpacePanning = true;
-        ob.mouseButtons =
-          action === 'pan'
-            ? { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE }
-            : { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
-        ob.target.copy(prevTarget);
-        controlsRef.current = ob;
-      }
-    };
-    initControls(controlMode, dragAction);
+    const controls = new MolecularControls(camera, renderer.domElement, {
+      rotationMode,
+      rotateSpeed: 1.0,
+      panSpeed: 1.0,
+      enableDamping: true,
+      dampingFactor: 0.08,
+    });
+    controls.dragAction = dragAction;
+    controlsRef.current = controls;
 
     // Studio three-point lighting
     const ambient = new THREE.AmbientLight(0xdbeafe, 0.75);
@@ -598,7 +566,16 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
       }
       ctrl?.update();
 
-      // Dynamically orient each atom label sprite on the front hemisphere surface facing the camera
+      // 1. Billboarding for all selection rings so they NEVER disappear or turn into flat lines during "上下翻转"
+      if (camera) {
+        scene.traverse((obj) => {
+          if (obj.userData?.isSelectionRing) {
+            obj.quaternion.copy(camera.quaternion);
+          }
+        });
+      }
+
+      // 2. Dynamically orient each atom label sprite on the front hemisphere surface facing the camera
       if (camera && labelsRef.current.length > 0) {
         const camPos = camera.position;
         const labels = labelsRef.current;
@@ -624,58 +601,15 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     };
   }, []);
 
-  // Switch between Trackball/Orbit and Rotate/Pan mouse bindings without losing camera target
+  // Synchronize rotationMode ('free' | 'horizon') and dragAction ('rotate' | 'pan') seamlessly
   useEffect(() => {
-    const cam = cameraRef.current;
-    const ren = rendererRef.current;
-    if (!cam || !ren) return;
-    const prevTarget = controlsRef.current?.target ? controlsRef.current.target.clone() : new THREE.Vector3(0, 0, 0);
     if (controlsRef.current) {
-      controlsRef.current.dispose();
-      controlsRef.current = null;
-    }
-    if (controlMode === 'trackball') {
-      const tb = new TrackballControls(cam, ren.domElement);
-      tb.rotateSpeed = 2.2;
-      tb.zoomSpeed = 1.1;
-      tb.panSpeed = 0.28;
-      tb.noZoom = false;
-      tb.noPan = false;
-      tb.staticMoving = false;
-      tb.dynamicDampingFactor = 0.16;
-      tb.mouseButtons =
-        dragAction === 'pan'
-          ? { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE }
-          : { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
-      tb.target.copy(prevTarget);
-      tb.handleResize();
-      controlsRef.current = tb;
-    } else {
-      const ob = new OrbitControls(cam, ren.domElement);
-      ob.enableDamping = true;
-      ob.dampingFactor = 0.08;
-      ob.rotateSpeed = 0.78;
-      ob.zoomSpeed = 0.95;
-      ob.panSpeed = 0.35;
-      ob.enablePan = true;
-      ob.screenSpacePanning = true;
-      ob.mouseButtons =
-        dragAction === 'pan'
-          ? { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE }
-          : { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
-      ob.target.copy(prevTarget);
-      controlsRef.current = ob;
-    }
-    if (controlsRef.current) {
+      controlsRef.current.rotationMode = rotationMode;
+      controlsRef.current.dragAction = dragAction;
       controlsRef.current.enabled = selectMode === 'none';
     }
-  }, [controlMode, dragAction]);
+  }, [rotationMode, dragAction, selectMode]);
 
-  useEffect(() => {
-    if (controlsRef.current) {
-      controlsRef.current.enabled = selectMode === 'none';
-    }
-  }, [selectMode]);
 
   // Populate / update geometry when molecule, style, charges, or isosurface changes
   useEffect(() => {
@@ -1340,19 +1274,23 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
           </Tooltip>
 
           <Tooltip
-            content="轨迹球模式支持 360° 无死角任意角度立体自由翻转（彻底解除两极触墙死角）；环绕轨道为传统水平锁定旋转"
-            title="空间旋转模式"
+            content={
+              rotationMode === 'free'
+                ? '当前: 360°自由立体翻转（支持上下连续翻转、零极点卡死、零视角反转）· 点击切换为水平锁定'
+                : '当前: 水平锁定环绕（保持重力向上）· 点击切换为 360°自由翻转'
+            }
+            title="空间翻转模式"
           >
             <button
-              onClick={() => setControlMode((m) => (m === 'trackball' ? 'orbit' : 'trackball'))}
+              onClick={() => setRotationMode((m) => (m === 'free' ? 'horizon' : 'free'))}
               className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer ${
-                controlMode === 'trackball'
+                rotationMode === 'free'
                   ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-400/40 shadow-sm'
                   : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200'
               }`}
             >
               <Compass className="w-3.5 h-3.5" />
-              <span>{controlMode === 'trackball' ? '轨迹球翻转' : '环绕轨道'}</span>
+              <span>{rotationMode === 'free' ? '360°自由翻转' : '水平锁定'}</span>
             </button>
           </Tooltip>
 
