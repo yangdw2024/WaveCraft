@@ -141,6 +141,7 @@ export class MolecularControls {
     this.isPointerDown = false;
     this.activePointerId = null;
     this.activeAction = null;
+    this.panVelocity.set(0, 0);
 
     window.removeEventListener('pointermove', this.onPointerMoveBound);
     window.removeEventListener('pointerup', this.onPointerUpBound);
@@ -326,10 +327,8 @@ export class MolecularControls {
         this.rotate(this.rotVelocity.x, this.rotVelocity.y);
         this.rotVelocity.multiplyScalar(1 - this.dampingFactor);
       }
-      if (this.panVelocity.lengthSq() > 1e-5) {
-        this.pan(this.panVelocity.x, this.panVelocity.y);
-        this.panVelocity.multiplyScalar(1 - this.dampingFactor);
-      }
+      // Panning stops immediately on release without lingering drift
+      this.panVelocity.set(0, 0);
     }
   }
 }

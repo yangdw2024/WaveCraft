@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import type { ExampleFileInfo, HealthInfo, MoleculeInspection } from '../types/quantum';
 import { Tooltip } from './Tooltip';
+import { api } from '../api/client';
 
 interface TopBarProps {
   health: HealthInfo | null;
@@ -122,7 +123,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           </select>
         </div>
 
-        {/* Upload Button */}
+        {/* Upload / Native Open Button */}
         <input
           ref={fileInputRef}
           type="file"
@@ -135,11 +136,22 @@ export const TopBar: React.FC<TopBarProps> = ({
           }}
         />
         <button
-          onClick={() => fileInputRef.current?.click()}
+          onClick={async () => {
+            try {
+              const res = await api.openNativeFileDialog();
+              if (res.file_path && !res.cancelled) {
+                onSelectFile(res.file_path);
+                return;
+              }
+            } catch {
+              fileInputRef.current?.click();
+            }
+          }}
           disabled={loading}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-400/30 transition cursor-pointer disabled:opacity-50"
+          title="打开本地量子化学文件（零拷贝直读，支持几GB大型文件）"
         >
-          <FileUp className="w-3.5 h-3.5" />
+          <FolderOpen className="w-3.5 h-3.5" />
           <span>打开文件</span>
         </button>
 

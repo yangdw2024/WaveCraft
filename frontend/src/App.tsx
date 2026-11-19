@@ -168,6 +168,8 @@ export function App() {
 
   useEffect(() => {
     mainRef.current?.scrollTo({ top: 0 });
+    // Notify 3D viewports to adapt and center squarely when tab switches
+    window.dispatchEvent(new CustomEvent('wavecraft-workspace-switch'));
   }, [activeWorkspace]);
 
   return (

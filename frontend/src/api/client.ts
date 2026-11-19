@@ -81,6 +81,9 @@ export const api = {
     }
   },
 
+  openNativeFileDialog: () =>
+    reqJson<{ file_path: string | null; cancelled: boolean }>('/dialog/open-file'),
+
   inspectMolecule: (file_path: string) => {
     const cleanPath = file_path.trim().replace(/^["']|["']$/g, '');
     return reqJson<MoleculeInspection>('/inspect', {

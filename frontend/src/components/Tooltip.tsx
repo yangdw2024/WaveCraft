@@ -24,6 +24,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
   const [coords, setCoords] = useState<{
     top: number;
     left: number;
+    arrowOffset: number;
     placement: 'top' | 'bottom';
   } | null>(null);
 
@@ -34,18 +35,26 @@ export const Tooltip: React.FC<TooltipProps> = ({
     if (!triggerRef.current) return;
     const rect = triggerRef.current.getBoundingClientRect();
     
-    // Automatically flip to bottom if too close to top of viewport
-    const preferBottom = position === 'bottom' || rect.top < 85;
-    const top = preferBottom ? rect.bottom + 8 : rect.top - 8;
+    // Automatically flip vertically depending on available viewport space
+    let placement: 'top' | 'bottom' = 'top';
+    if (position === 'bottom') {
+      placement = rect.bottom + 120 > window.innerHeight ? 'top' : 'bottom';
+    } else {
+      placement = rect.top < 110 ? 'bottom' : 'top';
+    }
 
-    // Horizontally center over trigger, clamping to viewport margins (8px - window width)
-    let left = rect.left + rect.width / 2;
-    left = Math.max(140, Math.min(window.innerWidth - 140, left));
+    const top = placement === 'bottom' ? rect.bottom + 8 : rect.top - 8;
+
+    // Horizontally center over trigger, clamping to viewport margins
+    const triggerMidX = rect.left + rect.width / 2;
+    const left = Math.max(150, Math.min(window.innerWidth - 150, triggerMidX));
+    const arrowOffset = Math.max(-120, Math.min(120, triggerMidX - left));
 
     setCoords({
       top,
       left,
-      placement: preferBottom ? 'bottom' : 'top',
+      arrowOffset,
+      placement,
     });
   };
 
@@ -122,7 +131,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
             {/* Small Pointer Triangle */}
             <div
               style={{
-                left: '50%',
+                left: `calc(50% + ${coords.arrowOffset || 0}px)`,
                 transform: 'translateX(-50%)',
               }}
               className={`absolute w-0 h-0 border-4 ${

@@ -18,6 +18,8 @@ import type {
   WaveCraftConfig,
 } from '../types/quantum';
 import { Molecule3DCanvas } from '../components/Molecule3DCanvas';
+import { ResizableSplitPane } from '../components/ResizableSplitPane';
+import { api } from '../api/client';
 
 interface FileHubWorkspaceProps {
   health: HealthInfo | null;
@@ -97,19 +99,21 @@ export const FileHubWorkspace: React.FC<FileHubWorkspaceProps> = ({
   return (
     <div className="space-y-5">
       {/* Top KPI + Quick Drop Row */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
-        {/* Drop Zone & Overview */}
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragOver(true);
-          }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={handleDrop}
-          className={`xl:col-span-5 glass-panel rounded-2xl p-5 flex flex-col justify-between transition ${
-            dragOver ? 'border-sky-400 bg-sky-500/10' : ''
-          }`}
-        >
+      <ResizableSplitPane
+        storageKey="file_hub_main"
+        defaultSplit={46}
+        left={
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
+            className={`glass-panel rounded-2xl p-5 flex flex-col justify-between transition h-full ${
+              dragOver ? 'border-sky-400 bg-sky-500/10' : ''
+            }`}
+          >
           <div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -146,6 +150,28 @@ export const FileHubWorkspace: React.FC<FileHubWorkspaceProps> = ({
               自动提取 3D 原子结构、成键拓扑、轨道能量与 HOMO-LUMO 能隙（支持超大文件流式传输）
             </div>
           </label>
+
+          {/* Native Explorer Button for Zero-Copy Multi-GB instant loading */}
+          <div className="mt-3">
+            <button
+              onClick={async () => {
+                try {
+                  const res = await api.openNativeFileDialog();
+                  if (res.file_path && !res.cancelled) {
+                    onSelectFile(res.file_path);
+                  }
+                } catch (e) {
+                  console.warn('Native open error', e);
+                }
+              }}
+              disabled={loading}
+              className="w-full py-2.5 px-3.5 rounded-xl bg-gradient-to-r from-sky-500/20 via-sky-400/20 to-cyan-500/20 hover:from-sky-500/30 hover:to-cyan-500/30 border border-sky-400/40 text-sky-200 text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-md shadow-sky-950/40"
+              title="调用系统资源管理器选择任意路径文件，无需网络上传，零拷贝即刻解析数GB大文件"
+            >
+              <FolderOpen className="w-4 h-4 text-sky-400" />
+              <span>📁 浏览本地文件打开（零拷贝直读 · 支持几GB大型文件）</span>
+            </button>
+          </div>
 
           <div className="mt-3 flex items-center gap-2">
             <input
@@ -212,56 +238,57 @@ export const FileHubWorkspace: React.FC<FileHubWorkspaceProps> = ({
               </button>
             </div>
           </div>
-        </div>
-
-        {/* 3D Preview + Wavefunction KPIs */}
-        <div className="xl:col-span-7 space-y-4">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-            <div className="glass-card rounded-xl p-3">
-              <div className="text-[11px] text-slate-400">分子式 / 点群</div>
-              <div className="text-sm font-bold text-sky-300 mt-0.5 whitespace-nowrap">
-                {s?.formula || '—'}{' '}
-                <span className="text-xs font-mono text-slate-400">
-                  {s?.point_group ? `(${s.point_group})` : ''}
-                </span>
-              </div>
-            </div>
-            <div className="glass-card rounded-xl p-3">
-              <div className="text-[11px] text-slate-400">总能量 (Hartree)</div>
-              <div className="text-base font-bold font-mono text-emerald-300 mt-0.5 truncate">
-                {s?.total_energy_hartree !== undefined && s?.total_energy_hartree !== null
-                  ? s.total_energy_hartree.toFixed(5)
-                  : '—'}
-              </div>
-            </div>
-            <div className="glass-card rounded-xl p-3">
-              <div className="text-[11px] text-slate-400">基函数 / 电子数</div>
-              <div className="text-base font-bold font-mono text-cyan-300 mt-0.5">
-                {s?.num_basis_functions ?? '—'} / {s?.num_electrons ?? '—'}
-              </div>
-            </div>
-            <div className="glass-card rounded-xl p-3">
-              <div className="text-[11px] text-slate-400">HOMO-LUMO Gap</div>
-              <div className="text-base font-bold font-mono text-violet-300 mt-0.5">
-                {s?.homo_lumo_gap_ev !== undefined && s?.homo_lumo_gap_ev !== null
-                  ? `${s.homo_lumo_gap_ev.toFixed(3)} eV`
-                  : '—'}
-              </div>
-            </div>
           </div>
+        }
+        right={
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div className="glass-card rounded-xl p-3">
+                <div className="text-[11px] text-slate-400">分子式 / 点群</div>
+                <div className="text-sm font-bold text-sky-300 mt-0.5 whitespace-nowrap">
+                  {s?.formula || '—'}{' '}
+                  <span className="text-xs font-mono text-slate-400">
+                    {s?.point_group ? `(${s.point_group})` : ''}
+                  </span>
+                </div>
+              </div>
+              <div className="glass-card rounded-xl p-3">
+                <div className="text-[11px] text-slate-400">总能量 (Hartree)</div>
+                <div className="text-base font-bold font-mono text-emerald-300 mt-0.5 truncate">
+                  {s?.total_energy_hartree !== undefined && s?.total_energy_hartree !== null
+                    ? s.total_energy_hartree.toFixed(5)
+                    : '—'}
+                </div>
+              </div>
+              <div className="glass-card rounded-xl p-3">
+                <div className="text-[11px] text-slate-400">基函数 / 电子数</div>
+                <div className="text-base font-bold font-mono text-cyan-300 mt-0.5">
+                  {s?.num_basis_functions ?? '—'} / {s?.num_electrons ?? '—'}
+                </div>
+              </div>
+              <div className="glass-card rounded-xl p-3">
+                <div className="text-[11px] text-slate-400">HOMO-LUMO Gap</div>
+                <div className="text-base font-bold font-mono text-violet-300 mt-0.5">
+                  {s?.homo_lumo_gap_ev !== undefined && s?.homo_lumo_gap_ev !== null
+                    ? `${s.homo_lumo_gap_ev.toFixed(3)} eV`
+                    : '—'}
+                </div>
+              </div>
+            </div>
 
-          <Molecule3DCanvas
-            atoms={inspection?.atoms || []}
-            bonds={inspection?.bonds || []}
-            title={
-              inspection
-                ? `三维预览 · ${inspection.file_name}`
-                : '三维量子分子预览视口'
-            }
-            heightClass="h-[310px]"
-          />
-        </div>
-      </div>
+            <Molecule3DCanvas
+              atoms={inspection?.atoms || []}
+              bonds={inspection?.bonds || []}
+              title={
+                inspection
+                  ? `三维预览 · ${inspection.file_name}`
+                  : '三维量子分子预览视口'
+              }
+              heightClass="h-[310px]"
+            />
+          </div>
+        }
+      />
 
       {/* Built-in Multiwfn Example Library & Recent Files */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">

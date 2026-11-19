@@ -298,6 +298,52 @@ async fn upload_handler(
     Err(err_resp(StatusCode::BAD_REQUEST, "未收到有效文件字段"))
 }
 
+async fn dialog_open_file_handler() -> Result<impl IntoResponse, (StatusCode, Json<ApiError>)> {
+    tokio::task::spawn_blocking(|| {
+        #[cfg(windows)]
+        {
+            let ps_script = r#"
+Add-Type -AssemblyName System.Windows.Forms
+$dlg = New-Object System.Windows.Forms.OpenFileDialog
+$dlg.Title = "WaveCraft - 选择量子化学计算与波函数文件 (零拷贝直读)"
+$dlg.Filter = "量子化学文件 (*.fchk;*.fch;*.wfn;*.wfx;*.mwfn;*.molden;*.pdb;*.xyz;*.cub;*.cube;*.out;*.log;*.gjf;*.com)|*.fchk;*.fch;*.wfn;*.wfx;*.mwfn;*.molden;*.pdb;*.xyz;*.cub;*.cube;*.out;*.log;*.gjf;*.com|全部文件 (*.*)|*.*"
+$dlg.RestoreDirectory = $true
+if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    [Console]::Write($dlg.FileName)
+}
+"#;
+            let output = std::process::Command::new("powershell")
+                .args(["-NoProfile", "-Sta", "-Command", ps_script])
+                .output();
+            if let Ok(out) = output {
+                let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                let clean = stdout.trim_matches('"').trim_matches('\'').trim();
+                let clean = clean.strip_prefix(r"\\?\").unwrap_or(clean);
+                if !clean.is_empty() && Path::new(clean).exists() {
+                    return Ok(Json(serde_json::json!({
+                        "file_path": clean,
+                        "cancelled": false,
+                    })));
+                }
+            }
+            Ok(Json(serde_json::json!({
+                "file_path": null,
+                "cancelled": true,
+            })))
+        }
+        #[cfg(not(windows))]
+        {
+            Ok(Json(serde_json::json!({
+                "file_path": null,
+                "cancelled": true,
+            })))
+        }
+    })
+    .await
+    .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, format!("调用文件对话框失败: {e}")))?
+}
+
 async fn inspect_handler(
     State(state): State<AppState>,
     Json(req): Json<InspectReq>,
@@ -1915,6 +1961,7 @@ async fn main() {
         .route("/menu-catalog", get(menu_catalog_handler))
         .route("/tasks", get(list_tasks_handler).delete(clear_tasks_handler))
         .route("/upload", post(upload_handler))
+        .route("/dialog/open-file", get(dialog_open_file_handler).post(dialog_open_file_handler))
         .route("/inspect", post(inspect_handler))
         .route("/charges", post(charges_handler))
         .route("/charges/compare", post(charges_compare_handler))

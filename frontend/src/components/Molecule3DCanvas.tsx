@@ -404,11 +404,31 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     if (!cam || !ctrl) return;
     const center = centerOffsetRef.current;
     let maxR = 2.0;
-    for (const a of atoms) {
-      const d = Math.hypot(a.x - center.x, a.y - center.y, a.z - center.z);
-      if (d > maxR) maxR = d;
+    let minX = 0, maxX = 0, minY = 0, maxY = 0, minZ = 0, maxZ = 0;
+    if (atoms.length > 0) {
+      minX = atoms[0].x - center.x; maxX = minX;
+      minY = atoms[0].y - center.y; maxY = minY;
+      minZ = atoms[0].z - center.z; maxZ = minZ;
+      for (const a of atoms) {
+        const dx = a.x - center.x;
+        const dy = a.y - center.y;
+        const dz = a.z - center.z;
+        const d = Math.hypot(dx, dy, dz);
+        if (d > maxR) maxR = d;
+        if (dx < minX) minX = dx; if (dx > maxX) maxX = dx;
+        if (dy < minY) minY = dy; if (dy > maxY) maxY = dy;
+        if (dz < minZ) minZ = dz; if (dz > maxZ) maxZ = dz;
+      }
     }
-    const dist = Math.max(maxR * (isosurface ? 2.55 : 2.15), 3.2);
+    // Expand for isosurface bounds if present
+    if (isosurface) maxR *= 1.35;
+
+    // Viewport-adaptive camera distance calculation based on PerspectiveCamera vertical FOV & aspect ratio
+    const aspect = Math.max(0.4, cam.aspect || 1.6);
+    const halfFovRad = THREE.MathUtils.degToRad(cam.fov * 0.5);
+    const fitDistVert = (maxR * 1.45) / Math.tan(halfFovRad);
+    const fitDistHoriz = (maxR * 1.45) / (Math.tan(halfFovRad) * aspect);
+    const dist = Math.max(Math.max(fitDistVert, fitDistHoriz), 3.6);
 
     // Reset control targets and cancel any lingering momentum
     ctrl.rotVelocity.set(0, 0);
@@ -417,19 +437,29 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
 
     if (view === 'side') {
       // 90° Side View along X-axis: ideal for observing π-π stacking layer separation
-      cam.position.set(dist * 1.5, 0, 0);
+      cam.position.set(dist * 1.4, 0, 0);
       cam.up.set(0, 0, 1);
     } else if (view === 'top') {
       // Top View along Y-axis
-      cam.position.set(0, dist * 1.5, 0);
+      cam.position.set(0, dist * 1.4, 0);
       cam.up.set(0, 0, -1);
     } else if (view === 'front') {
       // Front View along Z-axis
-      cam.position.set(0, 0, dist * 1.5);
+      cam.position.set(0, 0, dist * 1.4);
       cam.up.set(0, 1, 0);
     } else {
-      // Reset Isometric dead center
-      cam.position.set(dist * 1.15, dist * 0.85, dist * 1.35);
+      // True 3D Isometric View: Avoid edge-on viewing if molecule is planar in XY/YZ/ZX
+      const spanX = maxX - minX;
+      const spanY = maxY - minY;
+      const spanZ = maxZ - minZ;
+      // If flat in Z (e.g. planar aromatic ring in XY plane), tilt camera elevation by 35°
+      if (spanZ < 0.35 * Math.max(spanX, spanY)) {
+        cam.position.set(dist * 0.95, dist * 0.85, dist * 1.25);
+      } else if (spanX < 0.35 * Math.max(spanY, spanZ)) {
+        cam.position.set(dist * 1.25, dist * 0.85, dist * 0.95);
+      } else {
+        cam.position.set(dist * 1.05, dist * 0.75, dist * 1.2);
+      }
       cam.up.set(0, 1, 0);
     }
     cam.lookAt(0, 0, 0);
@@ -628,6 +658,16 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     });
     ro.observe(el);
 
+    const handleWorkspaceSwitch = () => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setCameraPreset('fit');
+        });
+      });
+    };
+    window.addEventListener('wavecraft-workspace-switch', handleWorkspaceSwitch);
+    window.addEventListener('wavecraft-fit-3d', handleWorkspaceSwitch);
+
     let rafId = 0;
     const dir = new THREE.Vector3();
     const animate = () => {
@@ -668,6 +708,8 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
     return () => {
       cancelAnimationFrame(rafId);
       ro.disconnect();
+      window.removeEventListener('wavecraft-workspace-switch', handleWorkspaceSwitch);
+      window.removeEventListener('wavecraft-fit-3d', handleWorkspaceSwitch);
       controlsRef.current?.dispose();
       renderer.dispose();
       rendererRef.current = null;
@@ -933,12 +975,14 @@ export const Molecule3DCanvas: React.FC<Molecule3DCanvasProps> = ({
 
     // Auto-center and fit camera squarely whenever molecule changes or loads
     if (atoms.length > 0) {
-      const currentMolKey = `${atoms.length}_${atoms[0].x.toFixed(2)}_${atoms[atoms.length - 1].z.toFixed(2)}`;
+      const currentMolKey = `${atoms.length}_${atoms[0].x.toFixed(2)}_${atoms[atoms.length - 1].z.toFixed(2)}_${criticalPoints?.length || 0}`;
       if (lastMoleculeKeyRef.current !== currentMolKey) {
         lastMoleculeKeyRef.current = currentMolKey;
         hasFittedVisibleRef.current = false;
         requestAnimationFrame(() => {
-          setCameraPreset('fit');
+          requestAnimationFrame(() => {
+            setCameraPreset('fit');
+          });
         });
       }
     }
