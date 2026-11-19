@@ -62,17 +62,32 @@ export const api = {
   uploadFile: async (file: File): Promise<{ file_path: string; file_name: string; size_bytes: number }> => {
     const form = new FormData();
     form.append('file', file);
-    const res = await fetch(`${BASE}/upload`, { method: 'POST', body: form });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data?.error || '文件上传失败');
-    return data;
+    try {
+      const res = await fetch(`${BASE}/upload`, { method: 'POST', body: form });
+      const text = await res.text();
+      let data: any;
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(`上传失败: HTTP ${res.status}`);
+      }
+      if (!res.ok) throw new Error(data?.error || `上传失败 (${res.status})`);
+      return data;
+    } catch (err: any) {
+      if (err.name === 'TypeError' && (err.message?.includes('fetch') || err.message?.includes('NetworkError'))) {
+        throw new Error(`无法连接服务或上传中断 (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
+      }
+      throw err;
+    }
   },
 
-  inspectMolecule: (file_path: string) =>
-    reqJson<MoleculeInspection>('/inspect', {
+  inspectMolecule: (file_path: string) => {
+    const cleanPath = file_path.trim().replace(/^["']|["']$/g, '');
+    return reqJson<MoleculeInspection>('/inspect', {
       method: 'POST',
-      body: JSON.stringify({ file_path }),
-    }),
+      body: JSON.stringify({ file_path: cleanPath }),
+    });
+  },
 
   calculateCharges: (file_path: string, method: string) =>
     reqJson<{

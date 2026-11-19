@@ -123,7 +123,7 @@ export const FileHubWorkspace: React.FC<FileHubWorkspaceProps> = ({
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-              支持直接拖拽上传 <code className="text-sky-300">.fch / .fchk / .wfn / .wfx / .mwfn / .molden / .pdb / .xyz / .cub / .out</code>，或在右侧示例库一键加载。
+              支持直接拖拽上传 <code className="text-sky-300">.fch / .fchk / .wfn / .wfx / .mwfn / .molden / .pdb / .xyz / .cub / .cube / .out / .log / .gjf / .com</code>，或在右侧示例库一键加载。
             </p>
           </div>
 
@@ -131,7 +131,7 @@ export const FileHubWorkspace: React.FC<FileHubWorkspaceProps> = ({
             <input
               type="file"
               className="hidden"
-              accept=".fch,.fchk,.wfn,.wfx,.mwfn,.molden,.pdb,.xyz,.cub,.cube,.out,.log,.gjf"
+              accept=".fch,.fchk,.wfn,.wfx,.mwfn,.molden,.pdb,.xyz,.cub,.cube,.out,.log,.gjf,.com,.mol,.cml"
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 if (f) onUploadFile(f);
@@ -143,7 +143,7 @@ export const FileHubWorkspace: React.FC<FileHubWorkspaceProps> = ({
               点击选择或拖拽量子化学文件到此处
             </div>
             <div className="text-[11px] text-slate-500 mt-0.5">
-              自动提取 3D 原子结构、成键拓扑、轨道能量与 HOMO-LUMO 能隙
+              自动提取 3D 原子结构、成键拓扑、轨道能量与 HOMO-LUMO 能隙（支持超大文件流式传输）
             </div>
           </label>
 
@@ -154,7 +154,8 @@ export const FileHubWorkspace: React.FC<FileHubWorkspaceProps> = ({
               onChange={(e) => setManualPath(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && manualPath.trim()) {
-                  onSelectFile(manualPath.trim());
+                  const p = manualPath.trim().replace(/^["']|["']$/g, '');
+                  if (p) onSelectFile(p);
                 }
               }}
               placeholder="输入本地波函数路径 (如 E:\YDW\Chemdraws\zmy_2\计算数据\zmy01.fchk)"
@@ -162,7 +163,10 @@ export const FileHubWorkspace: React.FC<FileHubWorkspaceProps> = ({
             />
             <button
               disabled={loading || !manualPath.trim()}
-              onClick={() => onSelectFile(manualPath.trim())}
+              onClick={() => {
+                const p = manualPath.trim().replace(/^["']|["']$/g, '');
+                if (p) onSelectFile(p);
+              }}
               className="px-3.5 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs cursor-pointer disabled:opacity-50 whitespace-nowrap"
             >
               载入/解析

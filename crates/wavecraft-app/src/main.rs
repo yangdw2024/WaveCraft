@@ -1,6 +1,6 @@
 use axum::{
     body::Body,
-    extract::{Multipart, Path as AxumPath, Query, State},
+    extract::{DefaultBodyLimit, Multipart, Path as AxumPath, Query, State},
     http::{header, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -247,7 +247,7 @@ async fn upload_handler(
     fs::create_dir_all(&upload_dir)
         .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, format!("创建上传目录失败: {e}")))?;
 
-    while let Some(field) = multipart
+    while let Some(mut field) = multipart
         .next_field()
         .await
         .map_err(|e| err_resp(StatusCode::BAD_REQUEST, format!("读取上传流失败: {e}")))?
@@ -261,18 +261,37 @@ async fn upload_handler(
             .and_then(|n| n.to_str())
             .unwrap_or("uploaded.fchk")
             .to_string();
-        let data = field
-            .bytes()
-            .await
-            .map_err(|e| err_resp(StatusCode::BAD_REQUEST, format!("读取文件字节失败: {e}")))?;
         let dest = upload_dir.join(&clean_name);
-        fs::write(&dest, &data)
-            .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, format!("保存文件失败: {e}")))?;
-        let canonical = fs::canonicalize(&dest).unwrap_or(dest);
+
+        let mut file = tokio::fs::File::create(&dest)
+            .await
+            .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, format!("创建目标文件失败: {e}")))?;
+
+        let mut total_bytes: usize = 0;
+        while let Some(chunk) = field
+            .chunk()
+            .await
+            .map_err(|e| err_resp(StatusCode::BAD_REQUEST, format!("读取文件块失败: {e}")))?
+        {
+            total_bytes += chunk.len();
+            tokio::io::AsyncWriteExt::write_all(&mut file, &chunk)
+                .await
+                .map_err(|e| err_resp(StatusCode::INTERNAL_SERVER_ERROR, format!("写入文件失败: {e}")))?;
+        }
+        tokio::io::AsyncWriteExt::flush(&mut file).await.ok();
+
+        let mut file_path = dest.to_string_lossy().to_string();
+        if let Ok(c) = fs::canonicalize(&dest) {
+            let s = c.to_string_lossy().to_string();
+            file_path = s.strip_prefix(r"\\?\").unwrap_or(&s).to_string();
+        }
+
+        info!("成功接收上传文件: {clean_name} ({total_bytes} 字节), 路径: {file_path}");
+
         return Ok(Json(serde_json::json!({
-            "file_path": canonical.to_string_lossy().to_string(),
+            "file_path": file_path,
             "file_name": clean_name,
-            "size_bytes": data.len(),
+            "size_bytes": total_bytes,
         })));
     }
 
@@ -283,9 +302,16 @@ async fn inspect_handler(
     State(state): State<AppState>,
     Json(req): Json<InspectReq>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ApiError>)> {
+    let clean_path = req
+        .file_path
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .trim();
+    let clean_path = clean_path.strip_prefix(r"\\?\").unwrap_or(clean_path);
     state
         .engine
-        .inspect_molecule(&req.file_path)
+        .inspect_molecule(clean_path)
         .await
         .map(Json)
         .map_err(|e| err_resp(StatusCode::BAD_REQUEST, e))
@@ -1925,7 +1951,11 @@ async fn main() {
         .route("/execute-raw", post(execute_raw_handler))
         .route("/download", get(download_handler));
 
-    let mut app = Router::new().nest("/api", api_routes).with_state(state);
+    let api_routes = api_routes.layer(DefaultBodyLimit::max(1024 * 1024 * 1024));
+    let mut app = Router::new()
+        .nest("/api", api_routes)
+        .layer(DefaultBodyLimit::max(1024 * 1024 * 1024))
+        .with_state(state);
 
     if let Some(dist_dir) = find_frontend_dist() {
         info!("托管静态前端目录: {:?}", dist_dir);

@@ -127,7 +127,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           ref={fileInputRef}
           type="file"
           className="hidden"
-          accept=".fch,.fchk,.wfn,.wfx,.mwfn,.molden,.pdb,.xyz,.cub,.cube,.out,.log,.gjf"
+          accept=".fch,.fchk,.wfn,.wfx,.mwfn,.molden,.pdb,.xyz,.cub,.cube,.out,.log,.gjf,.com,.mol,.cml"
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) onUploadFile(f);

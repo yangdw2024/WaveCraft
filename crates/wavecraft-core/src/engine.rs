@@ -126,15 +126,17 @@ impl MultiwfnEngine {
     }
 
     pub async fn inspect_molecule(&self, file_path: &str) -> Result<MoleculeInspection, String> {
-        let path = Path::new(file_path);
+        let clean_path = file_path.trim().trim_matches('"').trim_matches('\'').trim();
+        let clean_path = clean_path.strip_prefix(r"\\?\").unwrap_or(clean_path);
+        let path = Path::new(clean_path);
         if !path.exists() {
-            return Err(format!("文件不存在: {file_path}"));
+            return Err(format!("文件不存在: {clean_path}"));
         }
 
         let file_name = path
             .file_name()
             .and_then(|n| n.to_str())
-            .unwrap_or(file_path)
+            .unwrap_or(clean_path)
             .to_string();
         let extension = path
             .extension()
@@ -145,22 +147,22 @@ impl MultiwfnEngine {
 
         {
             let mut cfg = self.config.write().await;
-            cfg.add_recent_file(file_path);
+            cfg.add_recent_file(clean_path);
             let _ = cfg.save();
         }
 
         let (mut atoms, mut summary, mut orbitals) = quick_inspect_file(path);
         let mut raw_output = String::new();
 
-        // For wavefunction formats (not plain gaussian .out/.log or .gjf), call Multiwfn to get exact orbitals & XYZ
+        // For all supported quantum formats, call Multiwfn to enrich orbitals, properties & geometry
         let is_wfn_binary_or_rich = matches!(
             extension.as_str(),
-            "fch" | "fchk" | "wfn" | "wfx" | "mwfn" | "molden" | "pdb" | "xyz" | "gjf"
+            "fch" | "fchk" | "wfn" | "wfx" | "mwfn" | "molden" | "pdb" | "xyz" | "gjf" | "com" | "out" | "log" | "cub" | "cube"
         );
         if is_wfn_binary_or_rich {
             if let Ok(res) = self
                 .run_multiwfn(
-                    file_path,
+                    clean_path,
                     &CommandGenerator::wfn_inspect_and_xyz(),
                     &format!("解析波函数: {file_name}"),
                     60,
@@ -199,7 +201,7 @@ impl MultiwfnEngine {
         let bonds = compute_bonds(&atoms);
 
         Ok(MoleculeInspection {
-            file_path: file_path.to_string(),
+            file_path: clean_path.to_string(),
             file_name,
             extension,
             file_size,
@@ -218,6 +220,8 @@ impl MultiwfnEngine {
         task_name: &str,
         timeout_secs: u64,
     ) -> Result<CalculationResult, String> {
+        let clean_input = input_file.trim().trim_matches('"').trim_matches('\'').trim();
+        let clean_input = clean_input.strip_prefix(r"\\?\").unwrap_or(clean_input);
         let cfg = self.config.read().await.clone();
         let mwfn_path = cfg
             .multiwfn_path
@@ -228,8 +232,8 @@ impl MultiwfnEngine {
                     .to_string()
             })?;
 
-        if !Path::new(input_file).exists() {
-            return Err(format!("输入文件不存在: {input_file}"));
+        if !Path::new(clean_input).exists() {
+            return Err(format!("输入文件不存在: {clean_input}"));
         }
 
         let task_id = Uuid::new_v4().to_string()[..8].to_string();
@@ -251,7 +255,7 @@ impl MultiwfnEngine {
         let task_record = TaskRecord {
             id: task_id.clone(),
             name: task_name.to_string(),
-            input_file: input_file.to_string(),
+            input_file: clean_input.to_string(),
             commands: commands.to_vec(),
             status: TaskStatus::Running,
             started_at,
@@ -270,7 +274,7 @@ impl MultiwfnEngine {
 
         let start = Instant::now();
         let mut cmd = Command::new(mwfn_path);
-        cmd.arg(input_file)
+        cmd.arg(clean_input)
             .current_dir(&run_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

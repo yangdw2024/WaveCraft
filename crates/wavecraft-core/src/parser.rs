@@ -444,8 +444,318 @@ pub fn quick_inspect_file(path: &Path) -> (Vec<Atom3D>, WavefunctionSummary, Vec
             (atoms, summary, Vec::new())
         }
         "fch" | "fchk" => parse_fchk_direct(&content),
+        "wfn" => parse_wfn_direct(&content),
+        "wfx" => parse_wfx_direct(&content),
+        "gjf" | "com" => parse_gjf_direct(&content),
+        "out" | "log" => parse_gaussian_log_direct(&content),
+        "molden" => parse_molden_direct(&content),
         _ => (Vec::new(), WavefunctionSummary::default(), Vec::new()),
     }
+}
+
+fn parse_wfn_direct(content: &str) -> (Vec<Atom3D>, WavefunctionSummary, Vec<OrbitalInfo>) {
+    let mut summary = WavefunctionSummary::default();
+    let lines: Vec<&str> = content.lines().collect();
+    if let Some(first) = lines.first() {
+        let t = first.trim();
+        if !t.is_empty() {
+            summary.title = Some(t.to_string());
+        }
+    }
+
+    const BOHR_TO_ANGSTROM: f64 = 0.52917721092;
+    let mut atoms = Vec::new();
+    let mut orbitals = Vec::new();
+
+    let re_atom = Regex::new(
+        r"^\s*([A-Za-z]{1,2})\s+\d+\s+\(CENTRE\s+\d+\)\s+([-+]?\d+\.?\d*(?:[eEdD][-+]?\d+)?)\s+([-+]?\d+\.?\d*(?:[eEdD][-+]?\d+)?)\s+([-+]?\d+\.?\d*(?:[eEdD][-+]?\d+)?)\s+CHARGE\s*=\s*([-+]?\d+\.?\d*)",
+    )
+    .unwrap();
+
+    let re_mo = Regex::new(
+        r"^\s*MO\s+(\d+)\s+OCC\s+NO\s*=\s*([-+]?\d+\.?\d*)\s+ORB\.\s*ENERGY\s*=\s*([-+]?\d+\.?\d*(?:[eEdD][-+]?\d+)?)",
+    )
+    .unwrap();
+
+    for line in &lines {
+        if line.contains("MOL ORBITALS") && line.contains("NUCLEI") {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            for i in 0..parts.len() {
+                if parts[i] == "NUCLEI" && i > 0 {
+                    summary.num_atoms = parts[i - 1].parse().ok();
+                } else if parts[i] == "PRIMITIVES" && i > 0 {
+                    summary.num_basis_functions = parts[i - 1].parse().ok();
+                }
+            }
+        } else if let Some(caps) = re_atom.captures(line) {
+            let sym = &caps[1];
+            let x_bohr = caps[2].replace(['d', 'D'], "e").parse::<f64>().unwrap_or(0.0);
+            let y_bohr = caps[3].replace(['d', 'D'], "e").parse::<f64>().unwrap_or(0.0);
+            let z_bohr = caps[4].replace(['d', 'D'], "e").parse::<f64>().unwrap_or(0.0);
+            let x = x_bohr * BOHR_TO_ANGSTROM;
+            let y = y_bohr * BOHR_TO_ANGSTROM;
+            let z = z_bohr * BOHR_TO_ANGSTROM;
+            let mut atom = make_atom(atoms.len() + 1, sym, x, y, z);
+            if let Ok(chg) = caps[5].parse::<f64>() {
+                atom.charge = Some(chg);
+            }
+            atoms.push(atom);
+        } else if let Some(caps) = re_mo.captures(line) {
+            let idx = caps[1].parse::<usize>().unwrap_or(orbitals.len() + 1);
+            let occ = caps[2].parse::<f64>().unwrap_or(0.0);
+            let energy_au = caps[3].replace(['d', 'D'], "e").parse::<f64>().unwrap_or(0.0);
+            let energy_ev = energy_au * 27.211386245988;
+            orbitals.push(OrbitalInfo {
+                index: idx,
+                energy_hartree: energy_au,
+                energy_ev,
+                occupancy: occ,
+                spin_type: "Alpha".to_string(),
+                label: None,
+            });
+        }
+    }
+
+    if !orbitals.is_empty() {
+        enrich_homo_lumo(&mut summary, &orbitals);
+    }
+    summary.num_atoms = Some(atoms.len());
+    summary.formula = Some(compute_formula(&atoms));
+
+    (atoms, summary, orbitals)
+}
+
+fn parse_wfx_direct(content: &str) -> (Vec<Atom3D>, WavefunctionSummary, Vec<OrbitalInfo>) {
+    let mut summary = WavefunctionSummary::default();
+    const BOHR_TO_ANGSTROM: f64 = 0.52917721092;
+
+    let extract_tag = |tag: &str| -> Option<String> {
+        let open = format!("<{tag}>");
+        let close = format!("</{tag}>");
+        if let Some(start) = content.find(&open) {
+            if let Some(end) = content[start..].find(&close) {
+                return Some(content[start + open.len()..start + end].trim().to_string());
+            }
+        }
+        None
+    };
+
+    if let Some(t) = extract_tag("Title") {
+        summary.title = Some(t);
+    }
+    if let Some(s) = extract_tag("Number of Nuclei").and_then(|s| s.parse().ok()) {
+        summary.num_atoms = Some(s);
+    }
+    if let Some(s) = extract_tag("Number of Electrons").and_then(|s| s.parse().ok()) {
+        summary.num_electrons = Some(s);
+    }
+    if let Some(s) = extract_tag("Number of Alpha Electrons").and_then(|s| s.parse().ok()) {
+        summary.alpha_electrons = Some(s);
+    }
+    if let Some(s) = extract_tag("Number of Beta Electrons").and_then(|s| s.parse().ok()) {
+        summary.beta_electrons = Some(s);
+    }
+    if let Some(s) = extract_tag("Total Energy").and_then(|s| s.parse().ok()) {
+        summary.total_energy_hartree = Some(s);
+    }
+
+    let mut names = Vec::new();
+    if let Some(n_text) = extract_tag("Nuclear Names") {
+        for tok in n_text.split_whitespace() {
+            let sym = tok.trim_end_matches(|c: char| c.is_ascii_digit());
+            names.push(sym.to_string());
+        }
+    }
+
+    let mut coords_bohr = Vec::new();
+    if let Some(c_text) = extract_tag("Nuclear Cartesian Coordinates") {
+        for tok in c_text.split_whitespace() {
+            if let Ok(v) = tok.parse::<f64>() {
+                coords_bohr.push(v);
+            }
+        }
+    }
+
+    let mut atoms = Vec::new();
+    let num = names.len().min(coords_bohr.len() / 3);
+    for i in 0..num {
+        let sym = &names[i];
+        let x = coords_bohr[i * 3] * BOHR_TO_ANGSTROM;
+        let y = coords_bohr[i * 3 + 1] * BOHR_TO_ANGSTROM;
+        let z = coords_bohr[i * 3 + 2] * BOHR_TO_ANGSTROM;
+        atoms.push(make_atom(i + 1, sym, x, y, z));
+    }
+
+    summary.num_atoms = Some(atoms.len());
+    summary.formula = Some(compute_formula(&atoms));
+
+    (atoms, summary, Vec::new())
+}
+
+fn parse_gjf_direct(content: &str) -> (Vec<Atom3D>, WavefunctionSummary, Vec<OrbitalInfo>) {
+    let mut summary = WavefunctionSummary::default();
+    let lines: Vec<&str> = content.lines().collect();
+
+    let re_charge_mult = Regex::new(r"^\s*([-+]?\d+)\s+(\d+)\s*$").unwrap();
+    let re_geom = Regex::new(
+        r"^\s*([A-Za-z]{1,2})\s+([-+]?\d+\.?\d*(?:[eEdD][-+]?\d+)?)\s+([-+]?\d+\.?\d*(?:[eEdD][-+]?\d+)?)\s+([-+]?\d+\.?\d*(?:[eEdD][-+]?\d+)?)\s*$",
+    )
+    .unwrap();
+
+    let mut found_cm = false;
+    let mut atoms = Vec::new();
+
+    for line in lines {
+        let trimmed = line.trim();
+        if !found_cm {
+            if let Some(caps) = re_charge_mult.captures(trimmed) {
+                summary.net_charge = caps[1].parse().ok();
+                summary.multiplicity = caps[2].parse().ok();
+                found_cm = true;
+            }
+        } else {
+            if trimmed.is_empty() {
+                if !atoms.is_empty() {
+                    break;
+                }
+                continue;
+            }
+            if let Some(caps) = re_geom.captures(trimmed) {
+                let sym = &caps[1];
+                let x = caps[2].replace(['d', 'D'], "e").parse::<f64>().unwrap_or(0.0);
+                let y = caps[3].replace(['d', 'D'], "e").parse::<f64>().unwrap_or(0.0);
+                let z = caps[4].replace(['d', 'D'], "e").parse::<f64>().unwrap_or(0.0);
+                atoms.push(make_atom(atoms.len() + 1, sym, x, y, z));
+            } else if !atoms.is_empty() {
+                break;
+            }
+        }
+    }
+
+    summary.num_atoms = Some(atoms.len());
+    summary.formula = Some(compute_formula(&atoms));
+
+    (atoms, summary, Vec::new())
+}
+
+fn parse_gaussian_log_direct(
+    content: &str,
+) -> (Vec<Atom3D>, WavefunctionSummary, Vec<OrbitalInfo>) {
+    let mut summary = WavefunctionSummary::default();
+    let lines: Vec<&str> = content.lines().collect();
+
+    let mut last_orient_start: Option<usize> = None;
+    for (idx, line) in lines.iter().enumerate() {
+        if line.contains("Standard orientation:") || line.contains("Input orientation:") {
+            last_orient_start = Some(idx);
+        }
+        if line.contains("SCF Done:") {
+            if let Some(idx_eq) = line.find('=') {
+                let rest = line[idx_eq + 1..].trim();
+                if let Some(val_str) = rest.split_whitespace().next() {
+                    if let Ok(v) = val_str.parse::<f64>() {
+                        summary.total_energy_hartree = Some(v);
+                    }
+                }
+            }
+        }
+        if line.contains("alpha electrons") && line.contains("beta electrons") {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            for i in 0..parts.len() {
+                if parts[i] == "alpha" && i > 0 {
+                    summary.alpha_electrons = parts[i - 1].parse().ok();
+                } else if parts[i] == "beta" && i > 0 {
+                    summary.beta_electrons = parts[i - 1].parse().ok();
+                }
+            }
+            if let (Some(a), Some(b)) = (summary.alpha_electrons, summary.beta_electrons) {
+                summary.num_electrons = Some(a + b);
+            }
+        }
+    }
+
+    let mut atoms = Vec::new();
+    if let Some(start_idx) = last_orient_start {
+        let mut i = start_idx + 1;
+        let mut dash_count = 0;
+        while i < lines.len() {
+            let l = lines[i].trim();
+            if l.starts_with("---") {
+                dash_count += 1;
+                if dash_count == 2 {
+                    i += 1;
+                    break;
+                }
+            }
+            i += 1;
+        }
+
+        while i < lines.len() {
+            let l = lines[i].trim();
+            if l.starts_with("---") {
+                break;
+            }
+            let parts: Vec<&str> = l.split_whitespace().collect();
+            if parts.len() >= 6 {
+                if let (Ok(zn), Ok(x), Ok(y), Ok(z)) = (
+                    parts[1].parse::<u8>(),
+                    parts[3].parse::<f64>(),
+                    parts[4].parse::<f64>(),
+                    parts[5].parse::<f64>(),
+                ) {
+                    let sym = atomic_symbol(zn);
+                    atoms.push(make_atom(atoms.len() + 1, sym, x, y, z));
+                }
+            }
+            i += 1;
+        }
+    }
+
+    summary.num_atoms = Some(atoms.len());
+    summary.formula = Some(compute_formula(&atoms));
+
+    (atoms, summary, Vec::new())
+}
+
+fn parse_molden_direct(content: &str) -> (Vec<Atom3D>, WavefunctionSummary, Vec<OrbitalInfo>) {
+    let mut summary = WavefunctionSummary::default();
+    const BOHR_TO_ANGSTROM: f64 = 0.52917721092;
+    let lines: Vec<&str> = content.lines().collect();
+
+    let mut in_atoms = false;
+    let mut is_au = true;
+    let mut atoms = Vec::new();
+
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed.starts_with("[Atoms]") || trimmed.starts_with("[ATOMS]") {
+            in_atoms = true;
+            is_au = trimmed.to_uppercase().contains("AU");
+            continue;
+        }
+        if in_atoms {
+            if trimmed.starts_with('[') {
+                break;
+            }
+            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+            if parts.len() >= 6 {
+                let sym = parts[0];
+                let scale = if is_au { BOHR_TO_ANGSTROM } else { 1.0 };
+                if let (Ok(x), Ok(y), Ok(z)) = (
+                    parts[3].parse::<f64>(),
+                    parts[4].parse::<f64>(),
+                    parts[5].parse::<f64>(),
+                ) {
+                    atoms.push(make_atom(atoms.len() + 1, sym, x * scale, y * scale, z * scale));
+                }
+            }
+        }
+    }
+
+    summary.num_atoms = Some(atoms.len());
+    summary.formula = Some(compute_formula(&atoms));
+
+    (atoms, summary, Vec::new())
 }
 
 fn parse_fchk_direct(content: &str) -> (Vec<Atom3D>, WavefunctionSummary, Vec<OrbitalInfo>) {

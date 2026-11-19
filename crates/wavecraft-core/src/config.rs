@@ -159,7 +159,7 @@ impl WaveCraftConfig {
         }
         let supported_exts = [
             "fch", "fchk", "wfn", "wfx", "mwfn", "molden", "pdb", "xyz", "cub", "cube", "out",
-            "log", "gjf",
+            "log", "gjf", "com", "mol", "cml",
         ];
         let mut items = Vec::new();
         collect_examples(root, root, 0, &supported_exts, &mut items);
